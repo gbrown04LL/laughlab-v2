@@ -34,7 +34,6 @@ export default function ReportPage() {
     (state: AnalysisState) => state.currentPage
   ) ?? 1;
   
-  const hasAnalysis = currentAnalysis != null;
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
   useEffect(() => {
@@ -57,12 +56,12 @@ export default function ReportPage() {
   // Redirect if no analysis after hydration
   useEffect(() => {
     if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
-    if (!hasAnalysis) {
+    if (currentAnalysis === null) {
       router.replace('/analyze');
     }
-  }, [currentAnalysis, hasAnalysis, hasHydrated, router]);
+  }, [currentAnalysis, hasHydrated, router]);
 
-  if (!hasHydrated || currentAnalysis == null) {
+  if (!hasHydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="spinner" />
@@ -70,28 +69,34 @@ export default function ReportPage() {
     );
   }
 
-  const analysis = currentAnalysis as NonNullable<AnalysisState['currentAnalysis']>;
+  if (currentAnalysis == null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="spinner" />
+      </div>
+    );
+  }
 
   // Render current page
   const renderPage = () => {
     switch (currentPage) {
       case 1:
-        return <Page1Dashboard analysis={analysis} />;
+        return <Page1Dashboard analysis={currentAnalysis} />;
       case 2:
-        return <Page2Timeline analysis={analysis} />;
+        return <Page2Timeline analysis={currentAnalysis} />;
       case 3:
-        return <Page3Feedback analysis={analysis} />;
+        return <Page3Feedback analysis={currentAnalysis} />;
       case 4:
         if (!canAccessPage(4)) return <LockedPage page={4} />;
-        return <Page4Gaps analysis={analysis} />;
+        return <Page4Gaps analysis={currentAnalysis} />;
       case 5:
         if (!canAccessPage(5)) return <LockedPage page={5} />;
-        return <Page5PunchUps analysis={analysis} />;
+        return <Page5PunchUps analysis={currentAnalysis} />;
       case 6:
         if (!canAccessPage(6)) return <LockedPage page={6} />;
-        return <Page6Characters analysis={analysis} />;
+        return <Page6Characters analysis={currentAnalysis} />;
       default:
-        return <Page1Dashboard analysis={analysis} />;
+        return <Page1Dashboard analysis={currentAnalysis} />;
     }
   };
 
