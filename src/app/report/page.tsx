@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Header, 
@@ -14,32 +14,51 @@ import {
   Page6Characters,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
-import { useStoreHydration } from '@/lib/useStoreHydration';
-import type { AnalysisState } from '@/types';
+import type { FullAnalysis } from '@/types';
 
 export default function ReportPage() {
   const router = useRouter();
-  
-  // Use hydration-safe hook for persisted state
-  const currentAnalysis = useStoreHydration(
-    useAnalysisStore,
-    (state: AnalysisState) => state.currentAnalysis
+  const [hasHydrated, setHasHydrated] = useState(
+    () => useAnalysisStore.persist?.hasHydrated?.() ?? false
   );
-  
-  const currentPage = useStoreHydration(
-    useAnalysisStore,
-    (state: AnalysisState) => state.currentPage
-  ) ?? 1;
-  
+
+  const currentAnalysis = useAnalysisStore((state) => state.currentAnalysis);
+  const currentPage = useAnalysisStore((state) => state.currentPage) ?? 1;
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
+  
+  useEffect(() => {
+    const unsubHydrate = useAnalysisStore.persist?.onHydrate?.(() => {
+      setHasHydrated(false);
+    });
+    const unsubFinishHydration = useAnalysisStore.persist?.onFinishHydration?.(() => {
+      setHasHydrated(true);
+    });
+
+    if (useAnalysisStore.persist?.hasHydrated?.()) {
+      setHasHydrated(true);
+    }
+
+    return () => {
+      unsubHydrate?.();
+      unsubFinishHydration?.();
+    };
+  }, []);
 
   // Redirect if no analysis after hydration
   useEffect(() => {
-    if (currentAnalysis === undefined) return; // Still hydrating
+    if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
     if (!currentAnalysis) {
-      router.push('/analyze');
+      router.replace('/analyze');
     }
-  }, [currentAnalysis, router]);
+  }, [currentAnalysis, hasHydrated, router]);
+
+  if (!hasHydrated || currentAnalysis === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="spinner" />
+      </div>
+    );
+  }
 
   if (!currentAnalysis) {
     return (
@@ -50,25 +69,25 @@ export default function ReportPage() {
   }
 
   // Render current page
-  const renderPage = () => {
+  const renderPage = (analysis: FullAnalysis) => {
     switch (currentPage) {
       case 1:
-        return <Page1Dashboard analysis={currentAnalysis} />;
+        return <Page1Dashboard analysis={analysis} />;
       case 2:
-        return <Page2Timeline analysis={currentAnalysis} />;
+        return <Page2Timeline analysis={analysis} />;
       case 3:
-        return <Page3Feedback analysis={currentAnalysis} />;
+        return <Page3Feedback analysis={analysis} />;
       case 4:
         if (!canAccessPage(4)) return <LockedPage page={4} />;
-        return <Page4Gaps analysis={currentAnalysis} />;
+        return <Page4Gaps analysis={analysis} />;
       case 5:
         if (!canAccessPage(5)) return <LockedPage page={5} />;
-        return <Page5PunchUps analysis={currentAnalysis} />;
+        return <Page5PunchUps analysis={analysis} />;
       case 6:
         if (!canAccessPage(6)) return <LockedPage page={6} />;
-        return <Page6Characters analysis={currentAnalysis} />;
+        return <Page6Characters analysis={analysis} />;
       default:
-        return <Page1Dashboard analysis={currentAnalysis} />;
+        return <Page1Dashboard analysis={analysis} />;
     }
   };
 
@@ -78,7 +97,7 @@ export default function ReportPage() {
       <ReportNavigation />
       <main className="flex-1 pb-16">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {renderPage()}
+          {renderPage(currentAnalysis)}
           <PageNavButtons />
         </div>
       </main>
