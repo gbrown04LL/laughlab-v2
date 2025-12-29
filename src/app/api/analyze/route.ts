@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { SYSTEM_PROMPT, ANALYSIS_PROMPT, detectFormat } from '@/lib/prompts';
-import { generateId, parseClaudeResponse } from '@/lib/utils';
-import { validateAndSanitizeAnalysis } from '@/lib/validation';
+import { detectFormat } from '@/lib/prompts';
+import { generateId } from '@/lib/utils';
+import { runPromptA } from '@/lib/llm/runPromptA';
+import { runPromptB } from '@/lib/llm/runPromptB';
 import { 
   checkRateLimit, 
   checkUsageLimit, 
@@ -12,15 +13,6 @@ import {
   cleanupRateLimitStore 
 } from '@/lib/ratelimit';
 import type { FullAnalysis, ScriptFormat, AnalyzeResponse, UserTier } from '@/types';
-
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
-});
-
-// Vercel serverless function timeout is 60s on Hobby, 300s on Pro
-// We'll set our timeout slightly below to handle gracefully
-const API_TIMEOUT_MS = 55000; // 55 seconds
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
@@ -143,68 +135,35 @@ export async function POST(request: NextRequest) {
     }
 
     // ===========================================
-    // 5. DETECT FORMAT & CALL CLAUDE API
+    // 5. DETECT FORMAT & RUN PROMPTS
     // ===========================================
     const detectedFormat = safeFormat === 'auto' ? detectFormat(script) : safeFormat;
 
-    console.log(`[Analysis] Starting for "${safeTitle}" (${detectedFormat}), ${script.length} chars, IP: ${clientIP.slice(0, 10)}...`);
+    console.log(
+      `[Analysis] Starting for "${safeTitle}" (${detectedFormat}), ${script.length} chars, IP: ${clientIP.slice(0, 10)}...`
+    );
 
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-
-    let message: Anthropic.Message;
+    let validatedData;
     try {
-      message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8192,
-        messages: [
-          {
-            role: 'user',
-            content: ANALYSIS_PROMPT(script, detectedFormat, safeTitle),
-          },
-        ],
-        system: SYSTEM_PROMPT,
+      validatedData = await runPromptA({
+        script,
+        format: detectedFormat as ScriptFormat,
+        title: safeTitle,
       });
-    } catch (apiError) {
-      clearTimeout(timeoutId);
-      
-      if (apiError instanceof Error && apiError.name === 'AbortError') {
-        console.error('[Analysis] Request timed out after', API_TIMEOUT_MS, 'ms');
-        return NextResponse.json<AnalyzeResponse>(
-          { success: false, error: 'Analysis timed out. Please try with a shorter script.' },
-          { status: 504 }
-        );
-      }
-      
-      throw apiError;
-    }
-    
-    clearTimeout(timeoutId);
-
-    // ===========================================
-    // 6. EXTRACT AND PARSE RESPONSE
-    // ===========================================
-    const textContent = message.content.find((block) => block.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
-      throw new Error('No text response from Claude');
+    } catch (error) {
+      console.error('[PromptA] Failed', error);
+      throw error;
     }
 
-    let rawAnalysisData: unknown;
+    let coachFeedback = validatedData.coachNote;
     try {
-      rawAnalysisData = parseClaudeResponse(textContent.text);
-    } catch (parseError) {
-      console.error('[Analysis] Failed to parse Claude response:', textContent.text.slice(0, 500));
-      throw new Error('Failed to parse analysis results. Please try again.');
+      coachFeedback = await runPromptB({ analysis: validatedData });
+    } catch (error) {
+      console.error('[PromptB] Failed', error);
     }
 
     // ===========================================
-    // 7. VALIDATE AND SANITIZE LLM OUTPUT
-    // ===========================================
-    const validatedData = validateAndSanitizeAnalysis(rawAnalysisData);
-
-    // ===========================================
-    // 8. BUILD FULL ANALYSIS RESULT
+    // 6. BUILD FULL ANALYSIS RESULT
     // ===========================================
     const analysis: FullAnalysis = {
       id: generateId('analysis'),
@@ -222,7 +181,7 @@ export async function POST(request: NextRequest) {
       callbacks: validatedData.callbacks,
       
       summary: validatedData.summary,
-      coachNote: validatedData.coachNote,
+      coachNote: coachFeedback,
     };
 
     // ===========================================
