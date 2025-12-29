@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Header, 
@@ -19,6 +19,28 @@ import type { AnalysisState } from '@/types';
 
 export default function ReportPage() {
   const router = useRouter();
+  const [hasHydrated, setHasHydrated] = useState(
+    () => useAnalysisStore.persist?.hasHydrated?.() ?? false
+  );
+
+  useEffect(() => {
+    const persist = useAnalysisStore.persist;
+    const unsubFinishHydration = persist?.onFinishHydration?.(() => {
+      setHasHydrated(true);
+    });
+    const unsubHydrate = persist?.onHydrate?.(() => {
+      setHasHydrated(false);
+    });
+
+    if (persist?.hasHydrated?.()) {
+      setHasHydrated(true);
+    }
+
+    return () => {
+      unsubFinishHydration?.();
+      unsubHydrate?.();
+    };
+  }, []);
   
   // Use hydration-safe hook for persisted state
   const currentAnalysis = useStoreHydration(
@@ -35,11 +57,12 @@ export default function ReportPage() {
 
   // Redirect if no analysis after hydration
   useEffect(() => {
+    if (!hasHydrated) return; // Wait for persistence to hydrate
     if (currentAnalysis === undefined) return; // Still hydrating
     if (!currentAnalysis) {
       router.push('/analyze');
     }
-  }, [currentAnalysis, router]);
+  }, [currentAnalysis, router, hasHydrated]);
 
   if (!currentAnalysis) {
     return (
