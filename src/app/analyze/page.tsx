@@ -49,8 +49,10 @@ export default function AnalyzePage() {
       }
 
       const result: AnalyzeResponse = await response.json();
+      console.log('[DEBUG] API response received:', { success: result.success, hasData: !!result.data });
 
       if (!result.success || !result.data) {
+        console.error('[DEBUG] API response failed:', result.error);
         throw new Error(result.error || 'Analysis failed');
       }
 
@@ -60,14 +62,20 @@ export default function AnalyzePage() {
         console.log(`[Analysis] Remaining analyses this month: ${remaining}`);
       }
 
+      console.log('[DEBUG] About to call setAnalysis with:', result.data.id);
       setAnalysis(result.data);
+      console.log('[DEBUG] setAnalysis called successfully');
+      
       setLocalLoading(false);
       setAnalyzing(false);
+      console.log('[DEBUG] Loading states reset');
       
       // Wait a tick to ensure Zustand persist middleware writes to localStorage
       await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('[DEBUG] About to navigate to /report');
       
       router.push('/report');
+      console.log('[DEBUG] Navigation initiated');
     } catch (err) {
       clearTimeout(timeoutId);
       
