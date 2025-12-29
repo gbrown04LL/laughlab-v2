@@ -56,7 +56,7 @@ export default function ReportPage() {
   // Redirect if no analysis after hydration
   useEffect(() => {
     if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
-    if (currentAnalysis === null) {
+    if (currentAnalysis == null) {
       router.replace('/analyze');
     }
   }, [currentAnalysis, hasHydrated, router]);
