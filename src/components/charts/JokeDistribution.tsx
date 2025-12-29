@@ -35,7 +35,19 @@ export function JokeDistribution({ data, variant = 'horizontal' }: JokeDistribut
 
   const total = chartData.reduce((sum, item) => sum + item.count, 0);
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  interface TooltipPayload {
+    name: string;
+    count: number;
+    color: string;
+    multiplier: string;
+  }
+
+  interface CustomTooltipProps {
+    active?: boolean;
+    payload?: Array<{ payload: TooltipPayload }>;
+  }
+
+  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
       const item = payload[0].payload;
       const percentage = total > 0 ? ((item.count / total) * 100).toFixed(1) : 0;

@@ -327,12 +327,13 @@ export type ValidatedAnalysisResponse = z.infer<typeof AnalysisResponseSchema>;
 export function validateAndSanitizeAnalysis(rawData: unknown): ValidatedAnalysisResponse {
   // Parse with defaults and transformations
   const result = AnalysisResponseSchema.safeParse(rawData);
-  
+
   if (!result.success) {
-    console.warn('[Validation] Schema validation had issues, using defaults:', result.error.issues.slice(0, 5));
+    // Log validation failure for monitoring (production-safe)
+    console.warn('[Validation] Schema validation failed, using defaults. Error count:', result.error.issues.length);
     // Return with maximum defaults if parsing completely fails
     return AnalysisResponseSchema.parse({});
   }
-  
+
   return result.data;
 }

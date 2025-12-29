@@ -181,6 +181,14 @@ export function incrementUsage(identifier: string): void {
   const entry = usageStore.get(identifier);
   if (entry) {
     entry.count++;
+  } else {
+    // Entry should exist from checkUsageLimit(), but create it if missing
+    console.warn('[Usage] incrementUsage called before checkUsageLimit for:', identifier.slice(0, 10));
+    usageStore.set(identifier, {
+      count: 1,
+      monthKey: getCurrentMonthKey(),
+      tier: 'free',
+    });
   }
 }
 
@@ -202,27 +210,67 @@ export function getUsageStats(identifier: string): { count: number; monthKey: st
 // HELPERS
 // ===========================================
 
+// Validate IP address format
+function isValidIP(ip: string): boolean {
+  // IPv4 regex
+  const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  // IPv6 regex (simplified)
+  const ipv6Regex = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
+
+  if (!ipv4Regex.test(ip) && !ipv6Regex.test(ip)) {
+    return false;
+  }
+
+  // For IPv4, validate octets are in range 0-255
+  if (ipv4Regex.test(ip)) {
+    const octets = ip.split('.');
+    return octets.every(octet => {
+      const num = parseInt(octet, 10);
+      return num >= 0 && num <= 255;
+    });
+  }
+
+  return true; // IPv6 basic validation passed
+}
+
+// Check if we're running on Vercel (trusted proxy environment)
+function isTrustedProxyEnvironment(): boolean {
+  return process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+}
+
 export function getClientIP(request: Request): string {
-  // Try various headers in order of preference
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    // Take the first IP in the chain (client IP)
-    return forwardedFor.split(',')[0].trim();
+  const isTrusted = isTrustedProxyEnvironment();
+
+  // Only trust proxy headers in production/Vercel environments
+  if (isTrusted) {
+    // Vercel-specific header (most reliable on Vercel)
+    const vercelForwardedFor = request.headers.get('x-vercel-forwarded-for');
+    if (vercelForwardedFor) {
+      const ip = vercelForwardedFor.split(',')[0].trim();
+      if (isValidIP(ip)) {
+        return ip;
+      }
+    }
+
+    // Standard forwarded-for header
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    if (forwardedFor) {
+      // Take the first IP in the chain (client IP)
+      const ip = forwardedFor.split(',')[0].trim();
+      if (isValidIP(ip)) {
+        return ip;
+      }
+    }
+
+    const realIP = request.headers.get('x-real-ip');
+    if (realIP && isValidIP(realIP)) {
+      return realIP;
+    }
   }
-  
-  const realIP = request.headers.get('x-real-ip');
-  if (realIP) {
-    return realIP;
-  }
-  
-  // Vercel-specific
-  const vercelForwardedFor = request.headers.get('x-vercel-forwarded-for');
-  if (vercelForwardedFor) {
-    return vercelForwardedFor.split(',')[0].trim();
-  }
-  
-  // Fallback
-  return 'unknown';
+
+  // In development or if headers are invalid, use a fallback
+  // This prevents IP spoofing in development environments
+  return 'local-dev';
 }
 
 // Generate a simple fingerprint from request headers

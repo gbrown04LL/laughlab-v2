@@ -77,7 +77,19 @@ export function CharacterChart({ data, variant = 'bar' }: CharacterChartProps) {
     style: char.primaryStyle,
   }));
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  interface TooltipPayload {
+    name: string;
+    jokes: number;
+    percentage: number;
+    style: string;
+  }
+
+  interface CustomTooltipProps {
+    active?: boolean;
+    payload?: Array<{ payload: TooltipPayload }>;
+  }
+
+  const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
       const item = payload[0].payload;
       return (

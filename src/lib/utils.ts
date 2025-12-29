@@ -4,9 +4,28 @@
 
 import type { JokeComplexity, Gap, UserTier } from '@/types';
 
-// Generate unique IDs
+// Generate unique IDs using cryptographically secure random values
 export function generateId(prefix: string = 'll'): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const timestamp = Date.now();
+  const randomBytes = new Uint8Array(6);
+
+  // Use crypto.getRandomValues for secure randomness
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(randomBytes);
+  } else {
+    // Fallback for environments without crypto (shouldn't happen in modern browsers/Node)
+    for (let i = 0; i < randomBytes.length; i++) {
+      randomBytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  // Convert to base36 string
+  const randomStr = Array.from(randomBytes)
+    .map(b => b.toString(36))
+    .join('')
+    .slice(0, 9);
+
+  return `${prefix}_${timestamp}_${randomStr}`;
 }
 
 // Clamp a number between min and max

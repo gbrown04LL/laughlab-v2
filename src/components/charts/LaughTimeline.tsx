@@ -30,8 +30,22 @@ export function LaughTimeline({ data, showGaps = true }: LaughTimelineProps) {
     type: segment.dominantType,
   }));
 
+  interface TooltipPayload {
+    name: string;
+    minute: number;
+    laughScore: number;
+    jokes: number;
+    type: string;
+  }
+
+  interface CustomTooltipProps {
+    active?: boolean;
+    payload?: Array<{ payload: TooltipPayload }>;
+    label?: string;
+  }
+
   // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (

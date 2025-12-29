@@ -93,7 +93,7 @@ export function MetricDisplay({ value, label, target, unit, size = 'md' }: Metri
   };
 
   const numValue = typeof value === 'string' ? parseFloat(value) : value;
-  const isAboveTarget = target !== undefined && numValue >= target;
+  const isAboveTarget = target !== undefined && !isNaN(numValue) && numValue >= target;
 
   return (
     <div className="metric-card">

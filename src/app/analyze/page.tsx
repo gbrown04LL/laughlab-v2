@@ -49,33 +49,42 @@ export default function AnalyzePage() {
       }
 
       const result: AnalyzeResponse = await response.json();
-      console.log('[DEBUG] API response received:', { success: result.success, hasData: !!result.data });
 
       if (!result.success || !result.data) {
-        console.error('[DEBUG] API response failed:', result.error);
         throw new Error(result.error || 'Analysis failed');
       }
 
-      // Log remaining usage from headers
-      const remaining = response.headers.get('X-Usage-Remaining');
-      if (remaining) {
-        console.log(`[Analysis] Remaining analyses this month: ${remaining}`);
-      }
-
-      console.log('[DEBUG] About to call setAnalysis with:', result.data.id);
       setAnalysis(result.data);
-      console.log('[DEBUG] setAnalysis called successfully');
-      
+
       setLocalLoading(false);
       setAnalyzing(false);
-      console.log('[DEBUG] Loading states reset');
-      
-      // Wait a tick to ensure Zustand persist middleware writes to localStorage
-      await new Promise(resolve => setTimeout(resolve, 100));
-      console.log('[DEBUG] About to navigate to /report');
-      
+
+      // Wait for Zustand persist middleware to write to localStorage
+      // Check up to 10 times with exponential backoff (max ~500ms total)
+      const verifyPersistence = async () => {
+        const maxAttempts = 10;
+        const storageKey = 'laugh-lab-storage';
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const stored = localStorage.getItem(storageKey);
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              if (parsed.state?.currentAnalysis?.id === result.data.id) {
+                return true;
+              }
+            } catch (e) {
+              // Silent failure - proceed with navigation anyway
+            }
+          }
+          // Exponential backoff: 10ms, 20ms, 40ms, etc.
+          await new Promise(resolve => setTimeout(resolve, Math.min(10 * Math.pow(2, attempt), 100)));
+        }
+        return false;
+      };
+
+      await verifyPersistence();
       router.push('/report');
-      console.log('[DEBUG] Navigation initiated');
     } catch (err) {
       clearTimeout(timeoutId);
       

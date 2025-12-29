@@ -153,10 +153,13 @@ export async function POST(request: NextRequest) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
+    // Use configurable model version with fallback
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+
     let message: Anthropic.Message;
     try {
       message = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model,
         max_tokens: 8192,
         messages: [
           {

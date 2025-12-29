@@ -84,8 +84,8 @@ export function ReportProgress() {
 export function PageNavButtons() {
   const { currentPage, setCurrentPage, canAccessPage } = useAnalysisStore();
   
-  const prevPage = currentPage > 1 ? REPORT_PAGES[currentPage - 2] : null;
-  const nextPage = currentPage < REPORT_PAGES.length ? REPORT_PAGES[currentPage] : null;
+  const prevPage = currentPage > 1 && currentPage - 2 >= 0 && currentPage - 2 < REPORT_PAGES.length ? REPORT_PAGES[currentPage - 2] : null;
+  const nextPage = currentPage >= 1 && currentPage < REPORT_PAGES.length ? REPORT_PAGES[currentPage] : null;
   const canGoNext = nextPage && canAccessPage(nextPage.number);
 
   return (
