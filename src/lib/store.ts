@@ -111,6 +111,7 @@ export const useAnalysisStore = create<AnalysisState>()(
     {
       name: 'laugh-lab-storage',
       partialize: (state) => ({
+        currentAnalysis: state.currentAnalysis,
         history: state.history,
         userTier: state.userTier,
         analysesThisMonth: state.analysesThisMonth,
