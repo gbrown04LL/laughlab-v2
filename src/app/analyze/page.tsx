@@ -59,6 +59,9 @@ export default function AnalyzePage() {
       setLocalLoading(false);
       setAnalyzing(false);
 
+      // Store analysis ID for verification
+      const analysisId = result.data.id;
+
       // Wait for Zustand persist middleware to write to localStorage
       // Check up to 10 times with exponential backoff (max ~500ms total)
       const verifyPersistence = async () => {
@@ -70,7 +73,7 @@ export default function AnalyzePage() {
           if (stored) {
             try {
               const parsed = JSON.parse(stored);
-              if (parsed.state?.currentAnalysis?.id === result.data.id) {
+              if (parsed.state?.currentAnalysis?.id === analysisId) {
                 return true;
               }
             } catch (e) {
