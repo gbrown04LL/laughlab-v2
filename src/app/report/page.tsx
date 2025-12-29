@@ -77,26 +77,28 @@ export default function ReportPage() {
     );
   }
 
+  const analysis = currentAnalysis as NonNullable<AnalysisState['currentAnalysis']>;
+
   // Render current page
   const renderPage = () => {
     switch (currentPage) {
       case 1:
-        return <Page1Dashboard analysis={currentAnalysis} />;
+        return <Page1Dashboard analysis={analysis} />;
       case 2:
-        return <Page2Timeline analysis={currentAnalysis} />;
+        return <Page2Timeline analysis={analysis} />;
       case 3:
-        return <Page3Feedback analysis={currentAnalysis} />;
+        return <Page3Feedback analysis={analysis} />;
       case 4:
         if (!canAccessPage(4)) return <LockedPage page={4} />;
-        return <Page4Gaps analysis={currentAnalysis} />;
+        return <Page4Gaps analysis={analysis} />;
       case 5:
         if (!canAccessPage(5)) return <LockedPage page={5} />;
-        return <Page5PunchUps analysis={currentAnalysis} />;
+        return <Page5PunchUps analysis={analysis} />;
       case 6:
         if (!canAccessPage(6)) return <LockedPage page={6} />;
-        return <Page6Characters analysis={currentAnalysis} />;
+        return <Page6Characters analysis={analysis} />;
       default:
-        return <Page1Dashboard analysis={currentAnalysis} />;
+        return <Page1Dashboard analysis={analysis} />;
     }
   };
 
