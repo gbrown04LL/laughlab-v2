@@ -34,6 +34,7 @@ export default function ReportPage() {
     (state: AnalysisState) => state.currentPage
   ) ?? 1;
   
+  const hasAnalysis = currentAnalysis != null;
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
   useEffect(() => {
@@ -53,12 +54,12 @@ export default function ReportPage() {
   // Redirect if no analysis after hydration
   useEffect(() => {
     if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
-    if (!currentAnalysis) {
-      router.push('/analyze');
+    if (!hasAnalysis) {
+      router.replace('/analyze');
     }
-  }, [currentAnalysis, hasHydrated, router]);
+  }, [currentAnalysis, hasAnalysis, hasHydrated, router]);
 
-  if (!hasHydrated || currentAnalysis === undefined) {
+  if (!hasHydrated || currentAnalysis == null) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="spinner" />
