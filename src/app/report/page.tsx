@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Header, 
@@ -19,6 +19,9 @@ import type { AnalysisState } from '@/types';
 
 export default function ReportPage() {
   const router = useRouter();
+  const [hasHydrated, setHasHydrated] = useState(
+    () => useAnalysisStore.persist.hasHydrated()
+  );
   
   // Use hydration-safe hook for persisted state
   const currentAnalysis = useStoreHydration(
@@ -33,15 +36,29 @@ export default function ReportPage() {
   
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
+  useEffect(() => {
+    const unsubscribe = useAnalysisStore.persist.onFinishHydration(() => {
+      setHasHydrated(true);
+    });
+
+    if (useAnalysisStore.persist.hasHydrated()) {
+      setHasHydrated(true);
+    }
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Redirect if no analysis after hydration
   useEffect(() => {
-    if (currentAnalysis === undefined) return; // Still hydrating
+    if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
     if (!currentAnalysis) {
       router.push('/analyze');
     }
-  }, [currentAnalysis, router]);
+  }, [currentAnalysis, hasHydrated, router]);
 
-  if (!currentAnalysis) {
+  if (!hasHydrated || currentAnalysis === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="spinner" />
