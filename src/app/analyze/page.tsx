@@ -61,6 +61,8 @@ export default function AnalyzePage() {
       }
 
       setAnalysis(result.data);
+      setLocalLoading(false);
+      setAnalyzing(false);
       router.push('/report');
     } catch (err) {
       clearTimeout(timeoutId);
