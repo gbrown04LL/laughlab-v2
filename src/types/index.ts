@@ -433,6 +433,7 @@ export interface AnalysisState {
   // User state (simplified - will expand with Supabase)
   userTier: UserTier;
   analysesThisMonth: number;
+  usageMonthKey: string; // "2025-01" format for calendar month reset
   
   // History
   history: AnalysisHistoryItem[];
@@ -444,6 +445,7 @@ export interface AnalysisState {
   setCurrentPage: (page: number) => void;
   clearAnalysis: () => void;
   canAccessPage: (pageNumber: number) => boolean;
+  getRemainingAnalyses: () => number;
 }
 
 export interface AnalysisHistoryItem {

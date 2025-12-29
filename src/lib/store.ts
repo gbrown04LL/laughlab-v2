@@ -10,6 +10,12 @@ const TIER_PAGE_ACCESS: Record<UserTier, number[]> = {
   enterprise: [1, 2, 3, 4, 5, 6],
 };
 
+// Get current month key for tracking (e.g., "2025-01")
+function getCurrentMonthKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export const useAnalysisStore = create<AnalysisState>()(
   persist(
     (set, get) => ({
@@ -20,11 +26,23 @@ export const useAnalysisStore = create<AnalysisState>()(
       currentPage: 1,
       userTier: 'free' as UserTier,
       analysesThisMonth: 0,
+      usageMonthKey: getCurrentMonthKey(), // Track which month the count is for
       history: [],
 
       // Actions
       setAnalysis: (analysis: FullAnalysis) => {
         const state = get();
+        const currentMonth = getCurrentMonthKey();
+        
+        // Check if we need to reset for a new month
+        let newCount = state.analysesThisMonth;
+        let newMonthKey = state.usageMonthKey;
+        
+        if (state.usageMonthKey !== currentMonth) {
+          // New month - reset counter
+          newCount = 0;
+          newMonthKey = currentMonth;
+        }
         
         // Add to history
         const historyItem: AnalysisHistoryItem = {
@@ -46,7 +64,8 @@ export const useAnalysisStore = create<AnalysisState>()(
           error: null,
           currentPage: 1,
           history: newHistory,
-          analysesThisMonth: state.analysesThisMonth + 1,
+          analysesThisMonth: newCount + 1,
+          usageMonthKey: newMonthKey,
         });
       },
 
@@ -74,6 +93,20 @@ export const useAnalysisStore = create<AnalysisState>()(
         const allowedPages = TIER_PAGE_ACCESS[state.userTier];
         return allowedPages.includes(pageNumber);
       },
+      
+      // Get remaining analyses with month check
+      getRemainingAnalyses: () => {
+        const state = get();
+        const currentMonth = getCurrentMonthKey();
+        
+        // If month changed, they have full quota
+        if (state.usageMonthKey !== currentMonth) {
+          return state.userTier === 'free' ? 2 : Infinity;
+        }
+        
+        if (state.userTier !== 'free') return Infinity;
+        return Math.max(0, 2 - state.analysesThisMonth);
+      },
     }),
     {
       name: 'laugh-lab-storage',
@@ -81,6 +114,7 @@ export const useAnalysisStore = create<AnalysisState>()(
         history: state.history,
         userTier: state.userTier,
         analysesThisMonth: state.analysesThisMonth,
+        usageMonthKey: state.usageMonthKey,
       }),
     }
   )

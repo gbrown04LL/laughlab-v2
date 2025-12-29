@@ -1,27 +1,82 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT, ANALYSIS_PROMPT, detectFormat } from '@/lib/prompts';
-import { generateId, parseClaudeResponse, clamp } from '@/lib/utils';
-import type { FullAnalysis, ScriptFormat, AnalyzeResponse } from '@/types';
+import { generateId, parseClaudeResponse } from '@/lib/utils';
+import { validateAndSanitizeAnalysis } from '@/lib/validation';
+import { 
+  checkRateLimit, 
+  checkUsageLimit, 
+  incrementUsage, 
+  getClientIP, 
+  generateFingerprint,
+  cleanupRateLimitStore 
+} from '@/lib/ratelimit';
+import type { FullAnalysis, ScriptFormat, AnalyzeResponse, UserTier } from '@/types';
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || '',
 });
 
+// Vercel serverless function timeout is 60s on Hobby, 300s on Pro
+// We'll set our timeout slightly below to handle gracefully
+const API_TIMEOUT_MS = 55000; // 55 seconds
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   
+  // Cleanup old rate limit entries
+  cleanupRateLimitStore();
+  
   try {
-    // Parse request
-    const body = await request.json();
-    const { script, format = 'auto', title = 'Untitled Script' } = body as {
-      script: string;
-      format?: ScriptFormat;
-      title?: string;
+    // ===========================================
+    // 1. RATE LIMITING (IP-based)
+    // ===========================================
+    const clientIP = getClientIP(request);
+    const rateLimitResult = checkRateLimit(clientIP);
+    
+    if (!rateLimitResult.allowed) {
+      console.log(`[Analysis] Rate limited IP: ${clientIP}`);
+      return NextResponse.json<AnalyzeResponse>(
+        { success: false, error: rateLimitResult.reason || 'Too many requests' },
+        { 
+          status: 429,
+          headers: rateLimitResult.retryAfter 
+            ? { 'Retry-After': String(rateLimitResult.retryAfter) }
+            : undefined
+        }
+      );
+    }
+    
+    // ===========================================
+    // 2. PARSE AND VALIDATE REQUEST
+    // ===========================================
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json<AnalyzeResponse>(
+        { success: false, error: 'Invalid JSON in request body' },
+        { status: 400 }
+      );
+    }
+    
+    // Type guard and extract fields
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json<AnalyzeResponse>(
+        { success: false, error: 'Request body must be an object' },
+        { status: 400 }
+      );
+    }
+    
+    const { script, format = 'auto', title = 'Untitled Script', tier = 'free' } = body as {
+      script?: unknown;
+      format?: unknown;
+      title?: unknown;
+      tier?: unknown;
     };
 
-    // Validate input
+    // Validate script
     if (!script || typeof script !== 'string') {
       return NextResponse.json<AnalyzeResponse>(
         { success: false, error: 'Script text is required' },
@@ -42,8 +97,44 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    
+    // Validate format
+    const validFormats = ['sitcom', 'feature', 'sketch', 'standup', 'auto'];
+    const safeFormat = (typeof format === 'string' && validFormats.includes(format)) 
+      ? format as ScriptFormat 
+      : 'auto';
+    
+    // Validate title
+    const safeTitle = typeof title === 'string' 
+      ? title.slice(0, 200) 
+      : 'Untitled Script';
+    
+    // Validate tier (server-side validation - don't trust client)
+    const validTiers = ['free', 'starter', 'professional', 'enterprise'];
+    const safeTier: UserTier = (typeof tier === 'string' && validTiers.includes(tier))
+      ? tier as UserTier
+      : 'free';
 
-    // Check API key
+    // ===========================================
+    // 3. USAGE LIMIT CHECK (with calendar month reset)
+    // ===========================================
+    const fingerprint = generateFingerprint(request);
+    const usageResult = checkUsageLimit(fingerprint, safeTier);
+    
+    if (!usageResult.allowed) {
+      console.log(`[Analysis] Usage limit reached for: ${fingerprint}`);
+      return NextResponse.json<AnalyzeResponse>(
+        { 
+          success: false, 
+          error: usageResult.reason || 'Monthly analysis limit reached',
+        },
+        { status: 403 }
+      );
+    }
+
+    // ===========================================
+    // 4. CHECK API KEY
+    // ===========================================
     if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json<AnalyzeResponse>(
         { success: false, error: 'API key not configured. Please add ANTHROPIC_API_KEY to your environment.' },
@@ -51,130 +142,107 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Detect format if auto
-    const detectedFormat = format === 'auto' ? detectFormat(script) : format;
+    // ===========================================
+    // 5. DETECT FORMAT & CALL CLAUDE API
+    // ===========================================
+    const detectedFormat = safeFormat === 'auto' ? detectFormat(script) : safeFormat;
 
-    console.log(`[Analysis] Starting analysis for "${title}" (${detectedFormat}), ${script.length} chars`);
+    console.log(`[Analysis] Starting for "${safeTitle}" (${detectedFormat}), ${script.length} chars, IP: ${clientIP.slice(0, 10)}...`);
 
-    // Call Claude API
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
-      messages: [
-        {
-          role: 'user',
-          content: ANALYSIS_PROMPT(script, detectedFormat, title),
-        },
-      ],
-      system: SYSTEM_PROMPT,
-    });
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
-    // Extract text content
+    let message: Anthropic.Message;
+    try {
+      message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8192,
+        messages: [
+          {
+            role: 'user',
+            content: ANALYSIS_PROMPT(script, detectedFormat, safeTitle),
+          },
+        ],
+        system: SYSTEM_PROMPT,
+      });
+    } catch (apiError) {
+      clearTimeout(timeoutId);
+      
+      if (apiError instanceof Error && apiError.name === 'AbortError') {
+        console.error('[Analysis] Request timed out after', API_TIMEOUT_MS, 'ms');
+        return NextResponse.json<AnalyzeResponse>(
+          { success: false, error: 'Analysis timed out. Please try with a shorter script.' },
+          { status: 504 }
+        );
+      }
+      
+      throw apiError;
+    }
+    
+    clearTimeout(timeoutId);
+
+    // ===========================================
+    // 6. EXTRACT AND PARSE RESPONSE
+    // ===========================================
     const textContent = message.content.find((block) => block.type === 'text');
     if (!textContent || textContent.type !== 'text') {
       throw new Error('No text response from Claude');
     }
 
-    // Parse JSON response
-    let analysisData: any;
+    let rawAnalysisData: unknown;
     try {
-      analysisData = parseClaudeResponse(textContent.text);
+      rawAnalysisData = parseClaudeResponse(textContent.text);
     } catch (parseError) {
       console.error('[Analysis] Failed to parse Claude response:', textContent.text.slice(0, 500));
       throw new Error('Failed to parse analysis results. Please try again.');
     }
 
-    // Build full analysis result
+    // ===========================================
+    // 7. VALIDATE AND SANITIZE LLM OUTPUT
+    // ===========================================
+    const validatedData = validateAndSanitizeAnalysis(rawAnalysisData);
+
+    // ===========================================
+    // 8. BUILD FULL ANALYSIS RESULT
+    // ===========================================
     const analysis: FullAnalysis = {
       id: generateId('analysis'),
       timestamp: new Date().toISOString(),
-      title,
+      title: safeTitle,
       format: detectedFormat as ScriptFormat,
       
-      scriptStats: analysisData.scriptStats || {
-        totalLines: 0,
-        dialogueLines: 0,
-        estimatedRuntime: 0,
-        wordCount: 0,
-        sceneCount: 0,
-        characterCount: 0,
-      },
+      scriptStats: validatedData.scriptStats,
+      metrics: validatedData.metrics,
+      timeline: validatedData.timeline,
+      feedback: validatedData.feedback,
+      gaps: validatedData.gaps,
+      punchUps: validatedData.punchUps,
+      characters: validatedData.characters,
+      callbacks: validatedData.callbacks,
       
-      metrics: {
-        overallScore: clamp(analysisData.metrics?.overallScore || 65, 0, 100),
-        laughsPerMinute: analysisData.metrics?.laughsPerMinute || 1.5,
-        linesPerJoke: analysisData.metrics?.linesPerJoke || 6,
-        totalJokes: analysisData.metrics?.totalJokes || 0,
-        peakLaughMoments: analysisData.metrics?.peakLaughMoments || 0,
-        sustainedLaughSequences: analysisData.metrics?.sustainedLaughSequences || 0,
-        callbackFrequency: analysisData.metrics?.callbackFrequency || 0,
-        jokeDistribution: analysisData.metrics?.jokeDistribution || {
-          basic: 0,
-          standard: 0,
-          intermediate: 0,
-          advanced: 0,
-          high: 0,
-        },
-        formatComparison: analysisData.metrics?.formatComparison || {
-          targetLPM: 2.0,
-          targetLPJ: 5.5,
-          lpmStatus: 'on-target',
-          lpjStatus: 'on-target',
-          industryPercentile: 50,
-        },
-      },
-      
-      timeline: analysisData.timeline || {
-        segments: [],
-        hotSpots: [],
-        coldSpots: [],
-        biggestLaugh: { minute: 0, line: 0, description: 'N/A' },
-        longestDrySpell: { minute: 0, line: 0, description: 'N/A' },
-      },
-      
-      feedback: analysisData.feedback || {
-        strengths: [],
-        opportunities: [],
-        quickWins: [],
-      },
-      
-      gaps: analysisData.gaps || {
-        gaps: [],
-        retentionCliff: null,
-        averageGapDuration: 0,
-        longestGap: 0,
-        gapScore: 100,
-        recommendations: [],
-      },
-      
-      punchUps: analysisData.punchUps || {
-        punchUps: [],
-        overallTone: '',
-        styleNotes: [],
-      },
-      
-      characters: analysisData.characters || {
-        characters: [],
-        balance: { score: 100, status: 'balanced', dominantCharacter: null, underutilized: [] },
-        interactions: [],
-        recommendations: [],
-      },
-      
-      callbacks: analysisData.callbacks || {
-        existingCallbacks: [],
-        missedOpportunities: [],
-        callbackScore: 0,
-        recommendations: [],
-      },
-      
-      summary: analysisData.summary || 'Analysis complete.',
-      coachNote: analysisData.coachNote || 'Keep writing!',
+      summary: validatedData.summary,
+      coachNote: validatedData.coachNote,
     };
 
-    const duration = Date.now() - startTime;
-    console.log(`[Analysis] Completed in ${duration}ms, score: ${analysis.metrics.overallScore}`);
+    // ===========================================
+    // 9. INCREMENT USAGE (only on success)
+    // ===========================================
+    incrementUsage(fingerprint);
 
-    return NextResponse.json<AnalyzeResponse>({ success: true, data: analysis });
+    const duration = Date.now() - startTime;
+    console.log(`[Analysis] Completed in ${duration}ms, score: ${analysis.metrics.overallScore}, remaining: ${usageResult.remaining - 1}`);
+
+    // Return with usage info in headers
+    return NextResponse.json<AnalyzeResponse>(
+      { success: true, data: analysis },
+      {
+        headers: {
+          'X-Usage-Remaining': String(Math.max(0, usageResult.remaining - 1)),
+          'X-Usage-Limit': String(usageResult.limit),
+        },
+      }
+    );
 
   } catch (error) {
     console.error('[Analysis] Error:', error);
@@ -206,4 +274,15 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// ===========================================
+// HEALTH CHECK / GET
+// ===========================================
+export async function GET() {
+  return NextResponse.json({ 
+    status: 'ok', 
+    service: 'laugh-lab-analyze',
+    timestamp: new Date().toISOString(),
+  });
 }

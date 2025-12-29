@@ -6,9 +6,12 @@ import { Header, Footer, ScriptInput, LoadingAnalysis } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
 import type { ScriptFormat, AnalyzeResponse } from '@/types';
 
+// Align with server timeout (55s) - give server a little headroom
+const CLIENT_TIMEOUT_MS = 58000; // 58 seconds
+
 export default function AnalyzePage() {
   const router = useRouter();
-  const { setAnalysis, setAnalyzing, setError, isAnalyzing, error } = useAnalysisStore();
+  const { setAnalysis, setAnalyzing, setError, isAnalyzing, error, userTier } = useAnalysisStore();
   const [localLoading, setLocalLoading] = useState(false);
 
   const handleSubmit = async (script: string, format: ScriptFormat, title: string) => {
@@ -16,46 +19,33 @@ export default function AnalyzePage() {
     setAnalyzing(true);
     setError(null);
 
-    try {
-      // Add timeout wrapper - 2 minutes max
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
 
+    try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ script, format, title }),
+        body: JSON.stringify({ script, format, title, tier: userTier }),
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      // Check HTTP status before parsing JSON
-      if (!response.ok) {
-        if (response.status === 504) {
-          throw new Error(
-            'Analysis timed out. Your script may be too long for processing. ' +
-            'Try analyzing a shorter section (under 200 lines) or upgrade to a Pro plan for longer processing times.'
-          );
-        }
-        if (response.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
-        }
-        if (response.status === 401) {
-          throw new Error('API key not configured. Please contact support.');
-        }
-        
-        // Try to get error message from response
-        let errorMessage = `Server error (${response.status})`;
-        try {
-          const errorData = await response.json();
-          if (errorData.error) {
-            errorMessage = errorData.error;
-          }
-        } catch {
-          // If JSON parsing fails, use default message
-        }
-        throw new Error(errorMessage);
+      // Handle rate limiting
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        const message = retryAfter 
+          ? `Too many requests. Please wait ${retryAfter} seconds.`
+          : 'Too many requests. Please slow down.';
+        throw new Error(message);
+      }
+
+      // Handle usage limit
+      if (response.status === 403) {
+        const result = await response.json();
+        throw new Error(result.error || 'Monthly analysis limit reached. Please upgrade to continue.');
       }
 
       const result: AnalyzeResponse = await response.json();
@@ -64,20 +54,30 @@ export default function AnalyzePage() {
         throw new Error(result.error || 'Analysis failed');
       }
 
+      // Log remaining usage from headers
+      const remaining = response.headers.get('X-Usage-Remaining');
+      if (remaining) {
+        console.log(`[Analysis] Remaining analyses this month: ${remaining}`);
+      }
+
       setAnalysis(result.data);
       router.push('/report');
     } catch (err) {
-      // Handle abort/timeout
-      if (err instanceof Error && err.name === 'AbortError') {
-        setError(
-          'Analysis is taking too long (over 2 minutes). ' +
-          'This usually means your script is very long. ' +
-          'Try analyzing a shorter section or contact support for help with large scripts.'
-        );
+      clearTimeout(timeoutId);
+      
+      let message: string;
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          message = 'Analysis timed out. Try a shorter script or check your connection.';
+        } else {
+          message = err.message;
+        }
       } else {
-        const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
-        setError(message);
+        message = 'Something went wrong. Please try again.';
       }
+      
+      setError(message);
       setLocalLoading(false);
       setAnalyzing(false);
     }
@@ -128,14 +128,6 @@ export default function AnalyzePage() {
                   <li className="flex items-start gap-2">
                     <span className="text-laugh-400">•</span>
                     Dialogue-heavy scenes get the most detailed feedback
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-laugh-400">•</span>
-                    <strong>For scripts over 500 lines, analysis may take 60-90 seconds</strong>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-laugh-400">•</span>
-                    <strong>Very long scripts may timeout - try analyzing scenes individually</strong>
                   </li>
                 </ul>
               </div>
