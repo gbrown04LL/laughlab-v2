@@ -63,6 +63,10 @@ export default function AnalyzePage() {
       setAnalysis(result.data);
       setLocalLoading(false);
       setAnalyzing(false);
+      
+      // Wait a tick to ensure Zustand persist middleware writes to localStorage
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       router.push('/report');
     } catch (err) {
       clearTimeout(timeoutId);
