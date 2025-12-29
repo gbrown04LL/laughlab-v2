@@ -14,13 +14,28 @@ import {
   Page6Characters,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
+import { useStoreHydration } from '@/lib/useStoreHydration';
+import type { AnalysisState } from '@/types';
 
 export default function ReportPage() {
   const router = useRouter();
-  const { currentAnalysis, currentPage, canAccessPage } = useAnalysisStore();
+  
+  // Use hydration-safe hook for persisted state
+  const currentAnalysis = useStoreHydration(
+    useAnalysisStore,
+    (state: AnalysisState) => state.currentAnalysis
+  );
+  
+  const currentPage = useStoreHydration(
+    useAnalysisStore,
+    (state: AnalysisState) => state.currentPage
+  ) ?? 1;
+  
+  const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
-  // Redirect if no analysis
+  // Redirect if no analysis after hydration
   useEffect(() => {
+    if (currentAnalysis === undefined) return; // Still hydrating
     if (!currentAnalysis) {
       router.push('/analyze');
     }
