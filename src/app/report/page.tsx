@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Header, 
@@ -19,6 +19,9 @@ import type { AnalysisState } from '@/types';
 
 export default function ReportPage() {
   const router = useRouter();
+  const [hasHydrated, setHasHydrated] = useState(
+    () => useAnalysisStore.persist?.hasHydrated?.() ?? false
+  );
   
   // Use hydration-safe hook for persisted state
   const currentAnalysis = useStoreHydration(
@@ -33,15 +36,32 @@ export default function ReportPage() {
   
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
+  useEffect(() => {
+    const persist = useAnalysisStore.persist;
+    if (!persist?.onFinishHydration) return;
+
+    const unsubscribe = persist.onFinishHydration(() => {
+      setHasHydrated(true);
+    });
+
+    if (persist.hasHydrated()) {
+      setHasHydrated(true);
+    }
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Redirect if no analysis after hydration
   useEffect(() => {
-    if (currentAnalysis === undefined) return; // Still hydrating
-    if (!currentAnalysis) {
-      router.push('/analyze');
+    if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
+    if (currentAnalysis == null) {
+      router.replace('/analyze');
     }
-  }, [currentAnalysis, router]);
+  }, [currentAnalysis, hasHydrated, router]);
 
-  if (!currentAnalysis) {
+  if (!hasHydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="spinner" />
@@ -49,26 +69,36 @@ export default function ReportPage() {
     );
   }
 
+  if (currentAnalysis == null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  const analysis = currentAnalysis as NonNullable<AnalysisState['currentAnalysis']>;
+
   // Render current page
   const renderPage = () => {
     switch (currentPage) {
       case 1:
-        return <Page1Dashboard analysis={currentAnalysis} />;
+        return <Page1Dashboard analysis={analysis} />;
       case 2:
-        return <Page2Timeline analysis={currentAnalysis} />;
+        return <Page2Timeline analysis={analysis} />;
       case 3:
-        return <Page3Feedback analysis={currentAnalysis} />;
+        return <Page3Feedback analysis={analysis} />;
       case 4:
         if (!canAccessPage(4)) return <LockedPage page={4} />;
-        return <Page4Gaps analysis={currentAnalysis} />;
+        return <Page4Gaps analysis={analysis} />;
       case 5:
         if (!canAccessPage(5)) return <LockedPage page={5} />;
-        return <Page5PunchUps analysis={currentAnalysis} />;
+        return <Page5PunchUps analysis={analysis} />;
       case 6:
         if (!canAccessPage(6)) return <LockedPage page={6} />;
-        return <Page6Characters analysis={currentAnalysis} />;
+        return <Page6Characters analysis={analysis} />;
       default:
-        return <Page1Dashboard analysis={currentAnalysis} />;
+        return <Page1Dashboard analysis={analysis} />;
     }
   };
 
