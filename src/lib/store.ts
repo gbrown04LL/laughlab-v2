@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { AnalysisState, FullAnalysis, UserTier, AnalysisHistoryItem, TIER_FEATURES } from '@/types';
 
 // Tier feature access
@@ -21,6 +21,7 @@ export const useAnalysisStore = create<AnalysisState>()(
     (set, get) => ({
       // Initial state
       currentAnalysis: null,
+      hasHydrated: false,
       isAnalyzing: false,
       error: null,
       currentPage: 1,
@@ -33,6 +34,8 @@ export const useAnalysisStore = create<AnalysisState>()(
       setAnalysis: (analysis: FullAnalysis) => {
         const state = get();
         const currentMonth = getCurrentMonthKey();
+        const start = new Date().toISOString();
+        console.log('[AnalysisStore] setAnalysis start', { analysisId: analysis.id, start });
         
         // Check if we need to reset for a new month
         let newCount = state.analysesThisMonth;
@@ -67,6 +70,8 @@ export const useAnalysisStore = create<AnalysisState>()(
           analysesThisMonth: newCount + 1,
           usageMonthKey: newMonthKey,
         });
+        const end = new Date().toISOString();
+        console.log('[AnalysisStore] setAnalysis end', { analysisId: analysis.id, end });
       },
 
       setAnalyzing: (isAnalyzing: boolean) => {
@@ -86,6 +91,10 @@ export const useAnalysisStore = create<AnalysisState>()(
 
       clearAnalysis: () => {
         set({ currentAnalysis: null, error: null, currentPage: 1 });
+      },
+
+      markHydrated: () => {
+        set({ hasHydrated: true });
       },
 
       canAccessPage: (pageNumber: number) => {
@@ -110,6 +119,46 @@ export const useAnalysisStore = create<AnalysisState>()(
     }),
     {
       name: 'laugh-lab-storage',
+      storage: createJSONStorage(() => {
+        if (typeof window === 'undefined') {
+          const memoryStorage = new Map<string, string>();
+          return {
+            getItem: (name) => memoryStorage.get(name) ?? null,
+            removeItem: (name) => memoryStorage.delete(name) ? undefined : undefined,
+            setItem: (name, value) => {
+              const start = new Date().toISOString();
+              console.log('[Persist] setItem start (memory)', { name, start });
+              memoryStorage.set(name, value);
+              const end = new Date().toISOString();
+              console.log('[Persist] setItem end (memory)', { name, end });
+            },
+            clear: () => memoryStorage.clear(),
+            key: (index) => Array.from(memoryStorage.keys())[index] ?? null,
+            get length() {
+              return memoryStorage.size;
+            },
+          };
+        }
+
+        const storage = window.localStorage;
+
+        return {
+          getItem: storage.getItem.bind(storage),
+          removeItem: storage.removeItem.bind(storage),
+          setItem: (name, value) => {
+            const start = new Date().toISOString();
+            console.log('[Persist] setItem start', { name, start });
+            storage.setItem(name, value);
+            const end = new Date().toISOString();
+            console.log('[Persist] setItem end', { name, end });
+          },
+          clear: storage.clear.bind(storage),
+          key: storage.key.bind(storage),
+          get length() {
+            return storage.length;
+          },
+        } as Storage;
+      }),
       partialize: (state) => ({
         currentAnalysis: state.currentAnalysis,
         history: state.history,
@@ -117,6 +166,19 @@ export const useAnalysisStore = create<AnalysisState>()(
         analysesThisMonth: state.analysesThisMonth,
         usageMonthKey: state.usageMonthKey,
       }),
+      onRehydrateStorage: () => {
+        console.log('[Hydration] onRehydrateStorage start', new Date().toISOString());
+        return (state, error) => {
+          if (error) {
+            console.error('[Hydration] Error during rehydration', error);
+          }
+          console.log('[Hydration] onRehydrateStorage complete', {
+            timestamp: new Date().toISOString(),
+            hasAnalysis: !!state?.currentAnalysis,
+          });
+          set({ hasHydrated: true });
+        };
+      },
     }
   )
 );
