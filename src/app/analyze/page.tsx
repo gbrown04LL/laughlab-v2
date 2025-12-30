@@ -32,6 +32,7 @@ export default function AnalyzePage() {
       });
 
       clearTimeout(timeoutId);
+      console.log('[Instrumentation] API response received', { timestamp: new Date().toISOString(), status: response.status });
 
       // Handle rate limiting
       if (response.status === 429) {
@@ -49,7 +50,7 @@ export default function AnalyzePage() {
       }
 
       const result: AnalyzeResponse = await response.json();
-      console.log('[DEBUG] API response received:', { success: result.success, hasData: !!result.data });
+      console.log('[Instrumentation] Parsed API response', { timestamp: new Date().toISOString(), success: result.success, hasData: !!result.data });
 
       if (!result.success || !result.data) {
         console.error('[DEBUG] API response failed:', result.error);
@@ -62,20 +63,20 @@ export default function AnalyzePage() {
         console.log(`[Analysis] Remaining analyses this month: ${remaining}`);
       }
 
-      console.log('[DEBUG] About to call setAnalysis with:', result.data.id);
+      console.log('[Instrumentation] About to call setAnalysis', { timestamp: new Date().toISOString(), analysisId: result.data.id });
       setAnalysis(result.data);
-      console.log('[DEBUG] setAnalysis called successfully');
+      console.log('[Instrumentation] setAnalysis call returned', { timestamp: new Date().toISOString(), analysisId: result.data.id });
       
       setLocalLoading(false);
       setAnalyzing(false);
-      console.log('[DEBUG] Loading states reset');
+      console.log('[Instrumentation] Loading states reset', { timestamp: new Date().toISOString() });
       
       // Wait a tick to ensure Zustand persist middleware writes to localStorage
       await new Promise(resolve => setTimeout(resolve, 100));
-      console.log('[DEBUG] About to navigate to /report');
+      console.log('[Instrumentation] About to navigate to /report', { timestamp: new Date().toISOString() });
       
       router.push('/report');
-      console.log('[DEBUG] Navigation initiated');
+      console.log('[Instrumentation] Navigation initiated', { timestamp: new Date().toISOString() });
     } catch (err) {
       clearTimeout(timeoutId);
       

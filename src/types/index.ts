@@ -424,6 +424,7 @@ export const TIER_FEATURES: Record<UserTier, {
 export interface AnalysisState {
   // Current analysis
   currentAnalysis: FullAnalysis | null;
+  hasHydrated: boolean;
   
   // UI state
   isAnalyzing: boolean;
@@ -444,6 +445,7 @@ export interface AnalysisState {
   setError: (error: string | null) => void;
   setCurrentPage: (page: number) => void;
   clearAnalysis: () => void;
+  markHydrated: () => void;
   canAccessPage: (pageNumber: number) => boolean;
   getRemainingAnalyses: () => number;
 }
