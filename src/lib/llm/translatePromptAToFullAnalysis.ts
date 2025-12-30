@@ -10,6 +10,10 @@ import type {
   CharacterBalance,
   Callback,
   CallbackAnalysis,
+  TimelineSegment,
+  HotSpot,
+  ColdSpot,
+  JokeComplexity,
 } from '@/types';
 
 export interface PromptARaw {
@@ -204,6 +208,133 @@ function mapCallbacks(raw: PromptARaw['callbackAnalysis']): CallbackAnalysis {
   };
 }
 
+function mapJokeTypeToComplexity(type: string): JokeComplexity {
+  const mapping: Record<string, JokeComplexity> = {
+    Basic: 'basic',
+    Standard: 'standard',
+    Intermediate: 'intermediate',
+    Advanced: 'advanced',
+    HighComplexity: 'high',
+  };
+  return mapping[type] || 'standard';
+}
+
+function generateTimelineData(raw: PromptARaw) {
+  const jokesByLine = raw?.jokeAnalysis?.jokesByLine ?? [];
+  const totalLines = raw?.metadata?.totalLines ?? 100;
+  const runtimeMin = raw?.metadata?.estimatedRuntimeMin ?? raw?.metrics?.runtimeMinutes ?? 10;
+  const gaps = raw?.gapAnalysis?.gaps ?? [];
+
+  // Create ~10-12 segments for the timeline
+  const numSegments = Math.min(Math.max(6, Math.ceil(runtimeMin / 2)), 15);
+  const linesPerSegment = Math.ceil(totalLines / numSegments);
+  const minutesPerSegment = runtimeMin / numSegments;
+
+  const segments: TimelineSegment[] = [];
+
+  for (let i = 0; i < numSegments; i++) {
+    const startLine = i * linesPerSegment + 1;
+    const endLine = Math.min((i + 1) * linesPerSegment, totalLines);
+    const startMinute = i * minutesPerSegment;
+    const endMinute = (i + 1) * minutesPerSegment;
+
+    // Count jokes in this segment
+    const segmentJokes = jokesByLine.filter(
+      (j) => j.line >= startLine && j.line <= endLine
+    );
+    const jokeCount = segmentJokes.length;
+
+    // Calculate laugh score (0-10) based on joke density
+    // Target: ~2-3 jokes per segment for a good score
+    const densityScore = Math.min(10, (jokeCount / Math.max(1, linesPerSegment / 20)) * 5);
+
+    // Boost score based on joke complexity
+    const complexityBonus = segmentJokes.reduce((acc, j) => {
+      if (j.type === 'HighComplexity') return acc + 0.5;
+      if (j.type === 'Advanced') return acc + 0.3;
+      if (j.type === 'Intermediate') return acc + 0.1;
+      return acc;
+    }, 0);
+
+    const laughScore = clamp(Math.round((densityScore + complexityBonus) * 10) / 10, 0, 10);
+
+    // Determine dominant joke type
+    const typeCounts: Record<string, number> = {};
+    segmentJokes.forEach((j) => {
+      typeCounts[j.type] = (typeCounts[j.type] || 0) + 1;
+    });
+    const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Standard';
+
+    segments.push({
+      segmentNumber: i + 1,
+      startLine,
+      endLine,
+      startMinute: Math.round(startMinute * 10) / 10,
+      endMinute: Math.round(endMinute * 10) / 10,
+      jokeCount,
+      laughScore,
+      dominantType: mapJokeTypeToComplexity(dominantType),
+    });
+  }
+
+  // Generate hot spots (segments with high laugh scores)
+  const hotSpots: HotSpot[] = segments
+    .filter((s) => s.laughScore >= 7)
+    .map((s) => ({
+      startMinute: s.startMinute,
+      endMinute: s.endMinute,
+      description: `Strong comedy section with ${s.jokeCount} jokes`,
+      jokeCount: s.jokeCount,
+    }));
+
+  // Generate cold spots from gaps data
+  const coldSpots: ColdSpot[] = gaps.map((gap) => {
+    const severity: ColdSpot['severity'] =
+      gap.durationMin >= 3 ? 'critical' : gap.durationMin >= 1.5 ? 'moderate' : 'minor';
+    return {
+      startMinute: (gap.startLine / totalLines) * runtimeMin,
+      endMinute: (gap.endLine / totalLines) * runtimeMin,
+      durationMinutes: gap.durationMin ?? 0,
+      severity,
+      suggestion: `Consider adding comedy beats between lines ${gap.startLine}-${gap.endLine}`,
+    };
+  });
+
+  // Find biggest laugh (segment with highest score)
+  const biggestLaughSegment = segments.reduce(
+    (best, s) => (s.laughScore > best.laughScore ? s : best),
+    segments[0] || { laughScore: 0, startMinute: 0, startLine: 0 }
+  );
+
+  // Find longest dry spell
+  const dryColdSpot = coldSpots.reduce(
+    (longest, spot) => (spot.durationMinutes > longest.durationMinutes ? spot : longest),
+    coldSpots[0] || { startMinute: 0, durationMinutes: 0 }
+  );
+
+  return {
+    segments,
+    hotSpots,
+    coldSpots,
+    biggestLaugh: {
+      minute: Math.round(biggestLaughSegment?.startMinute ?? 0),
+      line: biggestLaughSegment?.startLine ?? 0,
+      description: biggestLaughSegment
+        ? `Peak comedy around minute ${Math.round(biggestLaughSegment.startMinute)} with ${biggestLaughSegment.jokeCount} jokes`
+        : 'N/A',
+      quote: '',
+    },
+    longestDrySpell: {
+      minute: Math.round(dryColdSpot?.startMinute ?? 0),
+      line: 0,
+      description: dryColdSpot?.durationMinutes
+        ? `${dryColdSpot.durationMinutes.toFixed(1)} minute gap without significant laughs`
+        : 'No significant gaps detected',
+      quote: '',
+    },
+  };
+}
+
 export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
   const format = toScriptFormat(raw?.metadata?.formatType ?? 'auto');
 
@@ -229,6 +360,7 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
   const characterBalanceScore = raw?.metrics?.characterBalanceScore ?? raw?.characterAnalysis?.characterBalanceScore ?? 0;
   const { characters, balance } = mapCharacters(raw?.characterAnalysis ?? ({} as any), characterBalanceScore);
   const callbacks = mapCallbacks(raw?.callbackAnalysis ?? ({} as any));
+  const timeline = generateTimelineData(raw);
 
   const summary = (raw?.recommendations ?? []).join(' ').trim() || '';
   const coachNote = summary;
@@ -247,13 +379,7 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
       characterCount: characters.length,
     },
     metrics,
-    timeline: {
-      segments: [],
-      hotSpots: [],
-      coldSpots: [],
-      biggestLaugh: { minute: 0, line: 0, description: 'N/A', quote: '' },
-      longestDrySpell: { minute: 0, line: 0, description: 'N/A', quote: '' },
-    },
+    timeline,
     feedback: {
       strengths: [],
       opportunities: [],

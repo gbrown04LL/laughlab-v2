@@ -23,10 +23,20 @@ export function Page1Dashboard({ analysis }: Page1Props) {
           <span className="text-ink-600">•</span>
           <span className="text-ink-400 text-sm">~{scriptStats.estimatedRuntime} min</span>
         </div>
-        <h1 className="text-3xl md:text-4xl font-display font-bold text-ink-100 mb-2">
+        <h1 className="text-3xl md:text-4xl font-display font-bold text-ink-100 mb-4">
           {analysis.title}
         </h1>
-        <p className="text-ink-400 max-w-2xl mx-auto">{summary}</p>
+        {/* Key Recommendations as pills */}
+        <div className="flex flex-wrap justify-center gap-2 max-w-3xl mx-auto">
+          {summary.split(/\s+(?=[A-Z])/).slice(0, 5).map((rec, i) => (
+            <span
+              key={i}
+              className="px-3 py-1.5 text-xs bg-ink-800/70 text-ink-300 rounded-full border border-ink-700/50"
+            >
+              {rec.trim()}
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* Main Score */}
