@@ -17,37 +17,44 @@ import { useAnalysisStore } from '@/lib/store';
 
 export default function ReportPage() {
   const router = useRouter();
-  const [hasHydrated, setHasHydrated] = useState(false);
+
+  // Check hydration synchronously on mount (avoids spinner flash on SPA navigation)
+  const [hasHydrated, setHasHydrated] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return useAnalysisStore.persist?.hasHydrated?.() ?? false;
+  });
 
   // Read directly from store - safe after hydration
   const currentAnalysis = useAnalysisStore((state) => state.currentAnalysis);
   const currentPage = useAnalysisStore((state) => state.currentPage);
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
-  // Track hydration state
+  // Track hydration state with race condition protection
   useEffect(() => {
+    // Already hydrated from sync check
+    if (hasHydrated) return;
+
     const persist = useAnalysisStore.persist;
     if (!persist) {
-      // No persist middleware - consider hydrated
       setHasHydrated(true);
       return;
     }
 
-    // Check if already hydrated
-    if (persist.hasHydrated?.()) {
-      setHasHydrated(true);
-      return;
-    }
-
-    // Wait for hydration to complete
+    // Subscribe to hydration event first
     const unsubscribe = persist.onFinishHydration?.(() => {
       setHasHydrated(true);
     });
 
+    // Then check if already hydrated (handles race condition where
+    // hydration finished between initial check and subscription)
+    if (persist.hasHydrated?.()) {
+      setHasHydrated(true);
+    }
+
     return () => {
       unsubscribe?.();
     };
-  }, []);
+  }, [hasHydrated]);
 
   // Redirect if no analysis after hydration completes
   useEffect(() => {
