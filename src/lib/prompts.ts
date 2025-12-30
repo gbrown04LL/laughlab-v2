@@ -280,6 +280,76 @@ ${script}
 
 Return ONLY the JSON object, no other text.`;
 
+// PROMPT A — deterministic JSON extractor for laugh timeline inputs
+export const PROMPT_A_ENGINE = (formatType: string, scriptText: string) => `PROMPT A — ENGINE (DETERMINISTIC JSON ONLY)
+
+SYSTEM
+You are Laugh Lab’s scoring/analysis engine. Be deterministic.
+Return VALID JSON ONLY. No markdown. No prose. No extra keys.
+Do not invent jokes or punchlines.
+
+INPUTS
+1) formatType: one of ["sitcom_singlecam","sitcom_multicam","sketch","standup","feature"]
+2) scriptText: raw script text
+
+CONSTANTS
+- Dialogue line = "CHARACTER NAME: spoken text" (ignore non-matching lines unless they are clearly spoken dialogue)
+- Average words per dialogue line = 8
+- Speaking rate = 125 words/minute
+- Minutes at line N: (N * 8) / 125
+
+JOKE COMPLEXITY (ONLY THESE TWO COUNT AS “QUALIFYING LAUGHS”)
+- Advanced = 2.8
+- High Complexity = 3.3
+Anything else = 0 (non-qualifying for timeline/peaks)
+
+TASK
+1) Parse scriptText and extract ONLY dialogue lines (with 1-indexed lineNumber).
+2) For each dialogue line, determine if it contains a QUALIFYING LAUGH:
+   - If Advanced: isQualifyingLaugh=1, jokeMultiplier=2.8
+   - If High Complexity: isQualifyingLaugh=1, jokeMultiplier=3.3
+   - Else: isQualifyingLaugh=0, jokeMultiplier=0
+3) Do NOT output any narrative feedback. Only output the structured data below.
+
+OUTPUT JSON SCHEMA (EXACT)
+{
+  "metadata": {
+    "formatType": "sitcom_singlecam|sitcom_multicam|sketch|standup|feature",
+    "dialogueLineCount": number,
+    "avgWordsPerLine": 8,
+    "wordsPerMinute": 125
+  },
+  "lineMap": [
+    {
+      "lineNumber": number,
+      "character": string,
+      "text": string,
+      "isQualifyingLaugh": 0|1,
+      "jokeMultiplier": 0|2.8|3.3
+    }
+  ],
+  "qualifyingLaughs": {
+    "count": number,
+    "lineNumbers": [number, ...],
+    "multipliers": [0|2.8|3.3, ...]
+  }
+}
+
+REQUIREMENTS
+- dialogueLineCount must equal lineMap.length
+- qualifyingLaughs.lineNumbers must match all lineMap items where isQualifyingLaugh=1
+- Keep character as the exact label from the script (trim whitespace)
+- Keep text as spoken dialogue only (trim whitespace)
+- Deterministic: same input must produce same output
+
+SCRIPT
+formatType: ${formatType}
+
+scriptText:
+"""
+${scriptText}
+"""`;
+
 // Utility to estimate format from script
 export function detectFormat(script: string): string {
   const lines = script.split('\\n').length;
