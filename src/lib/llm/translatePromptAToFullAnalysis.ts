@@ -219,51 +219,68 @@ function mapJokeTypeToComplexity(type: string): JokeComplexity {
   return mapping[type] || 'standard';
 }
 
+// Complexity weights aligned with spec scoring
+const COMPLEXITY_WEIGHTS: Record<string, number> = {
+  Basic: 1,
+  Standard: 2,
+  Intermediate: 3,
+  Advanced: 4,
+  HighComplexity: 5,
+};
+
 function generateTimelineData(raw: PromptARaw) {
   const jokesByLine = raw?.jokeAnalysis?.jokesByLine ?? [];
   const totalLines = raw?.metadata?.totalLines ?? 100;
   const runtimeMin = raw?.metadata?.estimatedRuntimeMin ?? raw?.metrics?.runtimeMinutes ?? 10;
   const gaps = raw?.gapAnalysis?.gaps ?? [];
+  const retentionCliff = raw?.gapAnalysis?.retentionCliff;
+  const targetLPM = raw?.metrics?.laughsPerMinute ?? 2;
 
-  // Create ~10-12 segments for the timeline
-  const numSegments = Math.min(Math.max(6, Math.ceil(runtimeMin / 2)), 15);
+  // Use 2-minute segments (or fewer for short scripts)
+  const segmentDuration = Math.min(2, runtimeMin / 4);
+  const numSegments = Math.max(4, Math.ceil(runtimeMin / segmentDuration));
   const linesPerSegment = Math.ceil(totalLines / numSegments);
-  const minutesPerSegment = runtimeMin / numSegments;
 
   const segments: TimelineSegment[] = [];
 
   for (let i = 0; i < numSegments; i++) {
     const startLine = i * linesPerSegment + 1;
     const endLine = Math.min((i + 1) * linesPerSegment, totalLines);
-    const startMinute = i * minutesPerSegment;
-    const endMinute = (i + 1) * minutesPerSegment;
+    const startMinute = (i * runtimeMin) / numSegments;
+    const endMinute = ((i + 1) * runtimeMin) / numSegments;
+    const segmentDurationMins = endMinute - startMinute;
 
-    // Count jokes in this segment
+    // Get jokes in this segment
     const segmentJokes = jokesByLine.filter(
       (j) => j.line >= startLine && j.line <= endLine
     );
     const jokeCount = segmentJokes.length;
 
-    // Calculate laugh score (0-10) based on joke density
-    // Target: ~2-3 jokes per segment for a good score
-    const densityScore = Math.min(10, (jokeCount / Math.max(1, linesPerSegment / 20)) * 5);
+    // Calculate weighted score based on complexity
+    const weightedScore = segmentJokes.reduce(
+      (acc, j) => acc + (COMPLEXITY_WEIGHTS[j.type] || 2),
+      0
+    );
 
-    // Boost score based on joke complexity
-    const complexityBonus = segmentJokes.reduce((acc, j) => {
-      if (j.type === 'HighComplexity') return acc + 0.5;
-      if (j.type === 'Advanced') return acc + 0.3;
-      if (j.type === 'Intermediate') return acc + 0.1;
-      return acc;
-    }, 0);
+    // Laugh score (0-10): based on jokes-per-minute relative to target
+    // Target ~2 LPM = score 6, scale up/down from there
+    const jokesPerMin = jokeCount / Math.max(0.5, segmentDurationMins);
+    const densityRatio = jokesPerMin / Math.max(0.5, targetLPM);
+    const baseScore = densityRatio * 6; // 6 is "on target"
 
-    const laughScore = clamp(Math.round((densityScore + complexityBonus) * 10) / 10, 0, 10);
+    // Bonus for complexity variety (up to +2)
+    const avgWeight = jokeCount > 0 ? weightedScore / jokeCount : 0;
+    const complexityBonus = Math.min(2, (avgWeight - 2) * 0.5);
 
-    // Determine dominant joke type
+    const laughScore = clamp(Math.round((baseScore + complexityBonus) * 10) / 10, 0, 10);
+
+    // Dominant joke type
     const typeCounts: Record<string, number> = {};
     segmentJokes.forEach((j) => {
       typeCounts[j.type] = (typeCounts[j.type] || 0) + 1;
     });
-    const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Standard';
+    const dominantType =
+      Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Standard';
 
     segments.push({
       segmentNumber: i + 1,
@@ -277,59 +294,76 @@ function generateTimelineData(raw: PromptARaw) {
     });
   }
 
-  // Generate hot spots (segments with high laugh scores)
+  // Hot spots: consecutive high-scoring segments or standout peaks
   const hotSpots: HotSpot[] = segments
-    .filter((s) => s.laughScore >= 7)
+    .filter((s) => s.laughScore >= 7 && s.jokeCount >= 2)
     .map((s) => ({
       startMinute: s.startMinute,
       endMinute: s.endMinute,
-      description: `Strong comedy section with ${s.jokeCount} jokes`,
+      description: `${s.jokeCount} jokes landed here`,
       jokeCount: s.jokeCount,
     }));
 
-  // Generate cold spots from gaps data
+  // Cold spots from gap analysis - include retention cliff with highest severity
   const coldSpots: ColdSpot[] = gaps.map((gap) => {
-    const severity: ColdSpot['severity'] =
-      gap.durationMin >= 3 ? 'critical' : gap.durationMin >= 1.5 ? 'moderate' : 'minor';
+    const isRetention =
+      retentionCliff &&
+      gap.startLine === retentionCliff.startLine &&
+      gap.endLine === retentionCliff.endLine;
+    const severity: ColdSpot['severity'] = isRetention
+      ? 'critical'
+      : gap.durationMin >= 2
+        ? 'moderate'
+        : 'minor';
     return {
       startMinute: (gap.startLine / totalLines) * runtimeMin,
       endMinute: (gap.endLine / totalLines) * runtimeMin,
       durationMinutes: gap.durationMin ?? 0,
       severity,
-      suggestion: `Consider adding comedy beats between lines ${gap.startLine}-${gap.endLine}`,
+      suggestion: isRetention
+        ? `Retention cliff: ${gap.length} lines without laughs—audiences may tune out`
+        : `${gap.length}-line gap—consider adding a beat here`,
     };
   });
 
-  // Find biggest laugh (segment with highest score)
-  const biggestLaughSegment = segments.reduce(
+  // Biggest laugh = segment with highest weighted density
+  const peakSegment = segments.reduce(
     (best, s) => (s.laughScore > best.laughScore ? s : best),
-    segments[0] || { laughScore: 0, startMinute: 0, startLine: 0 }
+    segments[0] || { laughScore: 0, startMinute: 0, startLine: 0, jokeCount: 0 }
   );
 
-  // Find longest dry spell
-  const dryColdSpot = coldSpots.reduce(
-    (longest, spot) => (spot.durationMinutes > longest.durationMinutes ? spot : longest),
-    coldSpots[0] || { startMinute: 0, durationMinutes: 0 }
-  );
+  // Longest dry spell = retention cliff if present, else longest gap
+  const drySpot = retentionCliff
+    ? {
+        startMinute: (retentionCliff.startLine / totalLines) * runtimeMin,
+        durationMinutes: retentionCliff.durationMin ?? 0,
+        line: retentionCliff.startLine,
+      }
+    : coldSpots.reduce(
+        (longest, spot) =>
+          spot.durationMinutes > longest.durationMinutes ? spot : longest,
+        { startMinute: 0, durationMinutes: 0, line: 0 } as any
+      );
 
   return {
     segments,
     hotSpots,
     coldSpots,
     biggestLaugh: {
-      minute: Math.round(biggestLaughSegment?.startMinute ?? 0),
-      line: biggestLaughSegment?.startLine ?? 0,
-      description: biggestLaughSegment
-        ? `Peak comedy around minute ${Math.round(biggestLaughSegment.startMinute)} with ${biggestLaughSegment.jokeCount} jokes`
-        : 'N/A',
+      minute: Math.round(peakSegment.startMinute),
+      line: peakSegment.startLine,
+      description:
+        peakSegment.jokeCount > 0
+          ? `Peak at minute ${Math.round(peakSegment.startMinute)}—${peakSegment.jokeCount} jokes hit`
+          : 'N/A',
       quote: '',
     },
     longestDrySpell: {
-      minute: Math.round(dryColdSpot?.startMinute ?? 0),
-      line: 0,
-      description: dryColdSpot?.durationMinutes
-        ? `${dryColdSpot.durationMinutes.toFixed(1)} minute gap without significant laughs`
-        : 'No significant gaps detected',
+      minute: Math.round(drySpot.startMinute ?? 0),
+      line: drySpot.line ?? 0,
+      description: drySpot.durationMinutes
+        ? `${drySpot.durationMinutes.toFixed(1)}-min gap${retentionCliff ? ' (retention cliff)' : ''}`
+        : 'No major gaps',
       quote: '',
     },
   };
