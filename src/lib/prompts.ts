@@ -350,6 +350,84 @@ scriptText:
 ${scriptText}
 """`;
 
+// PROMPT C — visualization compiler (deterministic JSON only)
+export const PROMPT_C_VISUALIZATION = (promptAJson: string) => `PROMPT C — VISUALIZATION ONLY (DETERMINISTIC JSON ONLY)
+
+SYSTEM
+You are Laugh Lab’s visualization compiler. Be deterministic.
+Return VALID JSON ONLY. No markdown. No prose. No extra keys.
+
+INPUTS
+You will receive ONE JSON object produced by Prompt A (exactly that schema).
+
+CONSTANTS
+- Target laugh score line for chart = 6
+- Segment count:
+  - If formatType in ["feature"] => 20 segments
+  - Else => 10 segments
+- Segmenting:
+  - Divide dialogueLineCount into equal contiguous ranges.
+  - Each segment must have integer startLine/endLine and cover every line exactly once.
+- Segment totals:
+  - laughCount = number of isQualifyingLaugh=1 in that segment
+  - segmentMultiplierSum = sum(jokeMultiplier) in that segment
+- Normalize segment score to 0–10:
+  - Let maxSegmentMultiplier = max(segmentMultiplierSum across all segments)
+  - If maxSegmentMultiplier == 0 => score = 0 for all segments
+  - Else score = min(10, (segmentMultiplierSum / maxSegmentMultiplier) * 10)
+
+BIGGEST LAUGH (card)
+- Choose the single line with the highest jokeMultiplier (3.3 beats 2.8).
+- If tie, choose the latest (highest lineNumber).
+- If no qualifying laughs, return nulls.
+
+LONGEST DRY SPELL (card)
+- A dry spell is any consecutive run where isQualifyingLaugh=0.
+- Find the longest run (by number of lines). If tie, choose the latest run.
+- durationMinutes = (drySpellLineCount * 8) / 125
+- approxMinute = (startLine * 8) / 125
+- If dialogueLineCount==0, return nulls.
+- If all lines are qualifying laughs, longest dry spell is nulls.
+
+OUTPUT JSON SCHEMA (EXACT)
+{
+  "targetLaughScore": 6,
+  "segments": [
+    {
+      "segment": number,
+      "startLine": number,
+      "endLine": number,
+      "laughCount": number,
+      "multiplierSum": number,
+      "score": number
+    }
+  ],
+  "laughDensityTimeline": [
+    { "segment": number, "score": number }
+  ],
+  "biggestLaugh": {
+    "score": number|null,
+    "line": number|null,
+    "minute": number|null
+  },
+  "longestDrySpell": {
+    "startLine": number|null,
+    "endLine": number|null,
+    "durationMinutes": number|null,
+    "approxMinute": number|null
+  }
+}
+
+REQUIREMENTS
+- segments length must equal chosen segment count (10 or 20)
+- laughDensityTimeline must be derived directly from segments (same ordering)
+- minute calculations:
+  minute = (line * 8) / 125
+- Deterministic: same Prompt A JSON must produce same output
+
+PROMPT A JSON INPUT
+${promptAJson}`;
+
 // Utility to estimate format from script
 export function detectFormat(script: string): string {
   const lines = script.split('\\n').length;
