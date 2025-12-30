@@ -18,23 +18,30 @@ import type { FullAnalysis } from '@/types';
 
 export default function ReportPage() {
   const router = useRouter();
-  const [hasHydrated, setHasHydrated] = useState(
-    () => useAnalysisStore.persist?.hasHydrated?.() ?? false
-  );
+  const [hasHydrated, setHasHydrated] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return useAnalysisStore.persist?.hasHydrated?.() ?? false;
+  });
 
   const currentAnalysis = useAnalysisStore((state) => state.currentAnalysis);
   const currentPage = useAnalysisStore((state) => state.currentPage) ?? 1;
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
   
   useEffect(() => {
-    const unsubHydrate = useAnalysisStore.persist?.onHydrate?.(() => {
+    const persist = useAnalysisStore.persist;
+    if (!persist) {
+      setHasHydrated(true);
+      return;
+    }
+
+    const unsubHydrate = persist.onHydrate?.(() => {
       setHasHydrated(false);
     });
-    const unsubFinishHydration = useAnalysisStore.persist?.onFinishHydration?.(() => {
+    const unsubFinishHydration = persist.onFinishHydration?.(() => {
       setHasHydrated(true);
     });
 
-    if (useAnalysisStore.persist?.hasHydrated?.()) {
+    if (persist.hasHydrated?.()) {
       setHasHydrated(true);
     }
 
