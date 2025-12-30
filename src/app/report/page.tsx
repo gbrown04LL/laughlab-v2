@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Header, 
-  ReportNavigation, 
+import {
+  Header,
+  ReportNavigation,
   PageNavButtons,
   Page1Dashboard,
   Page2Timeline,
@@ -14,53 +14,57 @@ import {
   Page6Characters,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
-import { useStoreHydration } from '@/lib/useStoreHydration';
-import type { AnalysisState } from '@/types';
 
 export default function ReportPage() {
   const router = useRouter();
-  const [hasHydrated, setHasHydrated] = useState(
-    () => useAnalysisStore.persist?.hasHydrated?.() ?? false
-  );
-  
-  // Use hydration-safe hook for persisted state
-  const currentAnalysis = useStoreHydration(
-    useAnalysisStore,
-    (state: AnalysisState) => state.currentAnalysis
-  );
-  
-  const currentPage = useStoreHydration(
-    useAnalysisStore,
-    (state: AnalysisState) => state.currentPage
-  ) ?? 1;
-  
+
+  // Check hydration synchronously on mount (avoids spinner flash on SPA navigation)
+  const [hasHydrated, setHasHydrated] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return useAnalysisStore.persist?.hasHydrated?.() ?? false;
+  });
+
+  // Read directly from store - safe after hydration
+  const currentAnalysis = useAnalysisStore((state) => state.currentAnalysis);
+  const currentPage = useAnalysisStore((state) => state.currentPage);
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
+  // Track hydration state with race condition protection
   useEffect(() => {
-    const persist = useAnalysisStore.persist;
-    if (!persist?.onFinishHydration) return;
+    // Already hydrated from sync check
+    if (hasHydrated) return;
 
-    const unsubscribe = persist.onFinishHydration(() => {
+    const persist = useAnalysisStore.persist;
+    if (!persist) {
+      setHasHydrated(true);
+      return;
+    }
+
+    // Subscribe to hydration event first
+    const unsubscribe = persist.onFinishHydration?.(() => {
       setHasHydrated(true);
     });
 
-    if (persist.hasHydrated()) {
+    // Then check if already hydrated (handles race condition where
+    // hydration finished between initial check and subscription)
+    if (persist.hasHydrated?.()) {
       setHasHydrated(true);
     }
 
     return () => {
-      unsubscribe();
+      unsubscribe?.();
     };
-  }, []);
+  }, [hasHydrated]);
 
-  // Redirect if no analysis after hydration
+  // Redirect if no analysis after hydration completes
   useEffect(() => {
-    if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
+    if (!hasHydrated) return;
     if (currentAnalysis == null) {
       router.replace('/analyze');
     }
   }, [currentAnalysis, hasHydrated, router]);
 
+  // Show spinner until hydration completes
   if (!hasHydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -69,6 +73,7 @@ export default function ReportPage() {
     );
   }
 
+  // Show spinner while redirecting (no analysis)
   if (currentAnalysis == null) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -77,11 +82,12 @@ export default function ReportPage() {
     );
   }
 
-  const analysis = currentAnalysis as NonNullable<AnalysisState['currentAnalysis']>;
+  const analysis = currentAnalysis;
+  const page = currentPage ?? 1;
 
   // Render current page
   const renderPage = () => {
-    switch (currentPage) {
+    switch (page) {
       case 1:
         return <Page1Dashboard analysis={analysis} />;
       case 2:
