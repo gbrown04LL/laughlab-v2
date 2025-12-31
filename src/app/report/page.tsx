@@ -47,29 +47,40 @@ export default function ReportPage() {
       console.log('[Instrumentation] /report waiting for hydration', { timestamp: new Date().toISOString() });
       return;
     }
+
+    // Defensive check: If currentAnalysis is null, try to manually rehydrate from localStorage
+    // This handles cases where navigation outpaced the persist middleware
     if (currentAnalysis == null) {
-      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration', {
+      console.log('[Instrumentation] /report analysis null after hydration, attempting manual recovery', {
         timestamp: new Date().toISOString(),
       });
-      // Wait a bit longer (1s) to give localStorage time to sync
-      // This handles edge cases where navigation happened before persist completed
-      const timer = setTimeout(() => {
-        // Check one more time before redirecting
-        const state = useAnalysisStore.getState();
-        if (state.currentAnalysis == null) {
-          console.log('[Instrumentation] /report confirmed no analysis, redirecting', {
-            timestamp: new Date().toISOString(),
-          });
-          router.replace('/analyze');
-        } else {
-          console.log('[Instrumentation] /report found analysis after delay', {
-            timestamp: new Date().toISOString(),
-            analysisId: state.currentAnalysis.id,
-          });
-          // Force re-render by triggering a state update
-          useAnalysisStore.setState({});
+
+      try {
+        const stored = localStorage.getItem('laugh-lab-storage');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const persistedAnalysis = parsed.state?.currentAnalysis;
+          
+          if (persistedAnalysis) {
+            console.log('[Instrumentation] /report manual recovery successful', {
+              timestamp: new Date().toISOString(),
+              analysisId: persistedAnalysis.id,
+            });
+            // Manually update the store with the persisted data
+            useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
+            return;
+          }
         }
-      }, 1000);
+      } catch (e) {
+        console.error('[Instrumentation] /report manual recovery failed', e);
+      }
+
+      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration and recovery attempt', {
+        timestamp: new Date().toISOString(),
+      });
+      
+      // Add a small delay to prevent flash of error state
+      const timer = setTimeout(() => router.replace('/analyze'), 100);
       return () => clearTimeout(timer);
     } else {
       console.log('[Instrumentation] /report ready to render analysis', {
