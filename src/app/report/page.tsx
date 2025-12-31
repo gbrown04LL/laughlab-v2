@@ -51,8 +51,25 @@ export default function ReportPage() {
       console.log('[Instrumentation] /report redirecting due to missing analysis after hydration', {
         timestamp: new Date().toISOString(),
       });
-      // Add a small delay to prevent flash of error state
-      const timer = setTimeout(() => router.replace('/analyze'), 100);
+      // Wait a bit longer (1s) to give localStorage time to sync
+      // This handles edge cases where navigation happened before persist completed
+      const timer = setTimeout(() => {
+        // Check one more time before redirecting
+        const state = useAnalysisStore.getState();
+        if (state.currentAnalysis == null) {
+          console.log('[Instrumentation] /report confirmed no analysis, redirecting', {
+            timestamp: new Date().toISOString(),
+          });
+          router.replace('/analyze');
+        } else {
+          console.log('[Instrumentation] /report found analysis after delay', {
+            timestamp: new Date().toISOString(),
+            analysisId: state.currentAnalysis.id,
+          });
+          // Force re-render by triggering a state update
+          useAnalysisStore.setState({});
+        }
+      }, 1000);
       return () => clearTimeout(timer);
     } else {
       console.log('[Instrumentation] /report ready to render analysis', {

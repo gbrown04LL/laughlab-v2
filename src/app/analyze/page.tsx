@@ -71,8 +71,31 @@ export default function AnalyzePage() {
       setAnalyzing(false);
       console.log('[Instrumentation] Loading states reset', { timestamp: new Date().toISOString() });
       
-      // Wait a tick to ensure Zustand persist middleware writes to localStorage
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait for Zustand persist middleware to write to localStorage
+      // Poll localStorage to verify the write completed
+      const maxWaitTime = 2000; // 2 seconds max
+      const pollInterval = 50; // Check every 50ms
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < maxWaitTime) {
+        try {
+          const stored = localStorage.getItem('laugh-lab-storage');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed.state?.currentAnalysis?.id === result.data.id) {
+              console.log('[Instrumentation] Verified localStorage write completed', { 
+                timestamp: new Date().toISOString(),
+                waitTime: Date.now() - startTime 
+              });
+              break;
+            }
+          }
+        } catch (e) {
+          console.warn('[Instrumentation] Error checking localStorage', e);
+        }
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+      
       console.log('[Instrumentation] About to navigate to /report', { timestamp: new Date().toISOString() });
       
       router.push('/report');
