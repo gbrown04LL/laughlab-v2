@@ -158,6 +158,112 @@ function mapGaps(raw: PromptARaw['gapAnalysis']): { gaps: Gap[]; retentionCliff:
   return { gaps, retentionCliff: retention, recommendations };
 }
 
+function generateTimeline(raw: PromptARaw) {
+  const jokesByLine = raw?.jokeAnalysis?.jokesByLine ?? [];
+  const totalLines = raw?.metadata?.totalLines ?? 1;
+  const runtimeMinutes = raw?.metadata?.estimatedRuntimeMin ?? raw?.metrics?.runtimeMinutes ?? 1;
+  const gaps = raw?.gapAnalysis?.gaps ?? [];
+
+  // Generate segments (divide script into ~10-20 segments)
+  const segmentCount = Math.min(Math.max(Math.floor(runtimeMinutes / 0.5), 5), 20);
+  const linesPerSegment = Math.ceil(totalLines / segmentCount);
+  
+  const segments = [];
+  for (let i = 0; i < segmentCount; i++) {
+    const startLine = i * linesPerSegment + 1;
+    const endLine = Math.min((i + 1) * linesPerSegment, totalLines);
+    const startMinute = (startLine / totalLines) * runtimeMinutes;
+    const endMinute = (endLine / totalLines) * runtimeMinutes;
+    
+    // Count jokes in this segment
+    const jokesInSegment = jokesByLine.filter(
+      (joke) => joke.line >= startLine && joke.line <= endLine
+    );
+    
+    const jokeCount = jokesInSegment.length;
+    const segmentDuration = endMinute - startMinute;
+    const laughScore = Math.min((jokeCount / Math.max(segmentDuration, 0.1)) * 1.5, 10);
+    
+    // Determine dominant type
+    const typeCounts: Record<string, number> = {};
+    jokesInSegment.forEach((joke) => {
+      typeCounts[joke.type] = (typeCounts[joke.type] || 0) + 1;
+    });
+    const dominantType = Object.keys(typeCounts).reduce((a, b) => 
+      typeCounts[a] > typeCounts[b] ? a : b, 'Standard'
+    );
+    
+    segments.push({
+      segmentNumber: i + 1,
+      startLine,
+      endLine,
+      startMinute,
+      endMinute,
+      jokeCount,
+      laughScore,
+      dominantType: dominantType.toLowerCase() as any,
+    });
+  }
+
+  // Find hot spots (segments with high laugh scores)
+  const hotSpots = segments
+    .filter((seg) => seg.laughScore >= 6)
+    .map((seg) => ({
+      startMinute: seg.startMinute,
+      endMinute: seg.endMinute,
+      description: `High comedy density with ${seg.jokeCount} jokes`,
+      jokeCount: seg.jokeCount,
+    }));
+
+  // Convert gaps to cold spots
+  const coldSpots = gaps.map((gap) => {
+    const startMinute = (gap.startLine / totalLines) * runtimeMinutes;
+    const endMinute = (gap.endLine / totalLines) * runtimeMinutes;
+    const durationMinutes = gap.durationMin ?? (endMinute - startMinute);
+    
+    return {
+      startMinute,
+      endMinute,
+      durationMinutes,
+      severity: durationMinutes > 2 ? 'critical' : durationMinutes > 1 ? 'moderate' : 'minor',
+      suggestion: `Add jokes between lines ${gap.startLine}-${gap.endLine}`,
+    };
+  }) as any[];
+
+  // Find biggest laugh (segment with highest score)
+  const biggestSegment = segments.reduce((max, seg) => 
+    seg.laughScore > max.laughScore ? seg : max, segments[0] || { laughScore: 0, startMinute: 0, startLine: 0 }
+  );
+  
+  const biggestLaugh = {
+    minute: Math.floor(biggestSegment.startMinute),
+    line: biggestSegment.startLine,
+    description: `Peak comedy moment with ${biggestSegment.jokeCount} jokes`,
+    quote: '',
+  };
+
+  // Find longest dry spell (largest gap)
+  const longestGap = gaps.reduce((max, gap) => 
+    (gap.durationMin ?? 0) > (max.durationMin ?? 0) ? gap : max, 
+    gaps[0] || { startLine: 0, durationMin: 0 }
+  );
+  
+  const longestDrySpell = longestGap ? {
+    minute: Math.floor((longestGap.startLine / totalLines) * runtimeMinutes),
+    line: longestGap.startLine,
+    description: `${longestGap.durationMin?.toFixed(1) ?? 0} minute gap without jokes`,
+    quote: '',
+  } : { minute: 0, line: 0, description: 'N/A', quote: '' };
+
+  return {
+    segments,
+    hotSpots,
+    coldSpots,
+    biggestLaugh,
+    longestDrySpell,
+  };
+}
+
 function mapCharacters(raw: PromptARaw['characterAnalysis'], metricBalance: number) {
   const entries = Object.entries(raw?.jokesPerCharacter ?? {});
   const totalJokes = entries.reduce((acc, [, count]) => acc + (count ?? 0), 0);
@@ -247,13 +353,7 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
       characterCount: characters.length,
     },
     metrics,
-    timeline: {
-      segments: [],
-      hotSpots: [],
-      coldSpots: [],
-      biggestLaugh: { minute: 0, line: 0, description: 'N/A', quote: '' },
-      longestDrySpell: { minute: 0, line: 0, description: 'N/A', quote: '' },
-    },
+    timeline: generateTimeline(raw),
     feedback: {
       strengths: [],
       opportunities: [],

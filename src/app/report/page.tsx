@@ -51,7 +51,9 @@ export default function ReportPage() {
       console.log('[Instrumentation] /report redirecting due to missing analysis after hydration', {
         timestamp: new Date().toISOString(),
       });
-      router.replace('/analyze');
+      // Add a small delay to prevent flash of error state
+      const timer = setTimeout(() => router.replace('/analyze'), 100);
+      return () => clearTimeout(timer);
     } else {
       console.log('[Instrumentation] /report ready to render analysis', {
         timestamp: new Date().toISOString(),

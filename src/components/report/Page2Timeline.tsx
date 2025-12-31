@@ -11,6 +11,11 @@ interface Page2Props {
 export function Page2Timeline({ analysis }: Page2Props) {
   const { timeline } = analysis;
 
+  // Check if timeline data is available
+  const hasTimelineData = timeline?.segments && timeline.segments.length > 0;
+  const hasBiggestLaugh = timeline?.biggestLaugh && timeline.biggestLaugh.description !== 'N/A';
+  const hasLongestDrySpell = timeline?.longestDrySpell && timeline.longestDrySpell.description !== 'N/A';
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -25,7 +30,17 @@ export function Page2Timeline({ analysis }: Page2Props) {
 
       {/* Main Chart */}
       <div className="report-section">
-        <LaughTimeline data={timeline} showGaps={true} />
+        {hasTimelineData ? (
+          <LaughTimeline data={timeline} showGaps={true} />
+        ) : (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <span className="text-6xl mb-4">📊</span>
+            <h3 className="text-xl font-semibold text-ink-200 mb-2">Timeline Data Unavailable</h3>
+            <p className="text-ink-400 max-w-md">
+              The laugh density timeline couldn't be generated for this analysis. This may happen with very short scripts or unusual formats.
+            </p>
+          </div>
+        )}
         
         {/* Legend */}
         <div className="flex flex-wrap items-center gap-6 mt-6 pt-4 border-t border-ink-800 text-xs">
@@ -49,38 +64,44 @@ export function Page2Timeline({ analysis }: Page2Props) {
       </div>
 
       {/* Key Moments */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Biggest Laugh */}
-        <div className="report-section border-l-4 border-emerald-500">
-          <h3 className="section-subtitle text-emerald-400">🎉 Biggest Laugh</h3>
-          <div className="space-y-2">
-            <p className="text-ink-300">{timeline.biggestLaugh.description}</p>
-            <div className="flex items-center gap-4 text-sm text-ink-500">
-              <span>Minute {timeline.biggestLaugh.minute}</span>
-              <span>•</span>
-              <span>Line {timeline.biggestLaugh.line}</span>
-            </div>
+      {(hasBiggestLaugh || hasLongestDrySpell) && (
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Biggest Laugh */}
+          {hasBiggestLaugh && (
+            <div className="report-section border-l-4 border-emerald-500">
+              <h3 className="section-subtitle text-emerald-400">🎉 Biggest Laugh</h3>
+              <div className="space-y-2">
+                <p className="text-ink-300">{timeline.biggestLaugh.description}</p>
+                <div className="flex items-center gap-4 text-sm text-ink-500">
+                  <span>Minute {timeline.biggestLaugh.minute}</span>
+                  <span>•</span>
+                  <span>Line {timeline.biggestLaugh.line}</span>
+                </div>
             {timeline.biggestLaugh.quote && (
               <blockquote className="mt-3 p-3 bg-emerald-500/5 border-l-2 border-emerald-500 rounded-r-lg">
                 <p className="text-ink-200 text-sm italic">&ldquo;{timeline.biggestLaugh.quote}&rdquo;</p>
               </blockquote>
             )}
-          </div>
-        </div>
-
-        {/* Longest Dry Spell */}
-        <div className="report-section border-l-4 border-amber-500">
-          <h3 className="section-subtitle text-amber-400">🏜️ Longest Dry Spell</h3>
-          <div className="space-y-2">
-            <p className="text-ink-300">{timeline.longestDrySpell.description}</p>
-            <div className="flex items-center gap-4 text-sm text-ink-500">
-              <span>Around minute {timeline.longestDrySpell.minute}</span>
-              <span>•</span>
-              <span>Near line {timeline.longestDrySpell.line}</span>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Longest Dry Spell */}
+          {hasLongestDrySpell && (
+            <div className="report-section border-l-4 border-amber-500">
+              <h3 className="section-subtitle text-amber-400">🏜️ Longest Dry Spell</h3>
+              <div className="space-y-2">
+                <p className="text-ink-300">{timeline.longestDrySpell.description}</p>
+                <div className="flex items-center gap-4 text-sm text-ink-500">
+                  <span>Around minute {timeline.longestDrySpell.minute}</span>
+                  <span>•</span>
+                  <span>Near line {timeline.longestDrySpell.line}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Hot Spots */}
       {timeline.hotSpots.length > 0 && (
