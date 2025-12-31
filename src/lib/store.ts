@@ -133,7 +133,7 @@ export const useAnalysisStore = create<AnalysisState>()(
               console.log('[Persist] setItem end (memory)', { name, end });
             },
             clear: () => memoryStorage.clear(),
-            key: (index) => Array.from(memoryStorage.keys())[index] ?? null,
+            key: (index: number) => Array.from(memoryStorage.keys())[index] ?? null,
             get length() {
               return memoryStorage.size;
             },
@@ -176,7 +176,7 @@ export const useAnalysisStore = create<AnalysisState>()(
             timestamp: new Date().toISOString(),
             hasAnalysis: !!state?.currentAnalysis,
           });
-          set({ hasHydrated: true });
+          useAnalysisStore.setState({ hasHydrated: true });
         };
       },
     }

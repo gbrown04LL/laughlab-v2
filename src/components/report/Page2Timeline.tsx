@@ -37,7 +37,7 @@ export function Page2Timeline({ analysis }: Page2Props) {
             <span className="text-6xl mb-4">📊</span>
             <h3 className="text-xl font-semibold text-ink-200 mb-2">Timeline Data Unavailable</h3>
             <p className="text-ink-400 max-w-md">
-              The laugh density timeline couldn't be generated for this analysis. This may happen with very short scripts or unusual formats.
+              The laugh density timeline couldn&apos;t be generated for this analysis. This may happen with very short scripts or unusual formats.
             </p>
           </div>
         )}
