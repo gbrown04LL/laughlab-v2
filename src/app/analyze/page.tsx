@@ -72,28 +72,29 @@ export default function AnalyzePage() {
       console.log('[Instrumentation] Loading states reset', { timestamp: new Date().toISOString() });
       
       // Wait for Zustand persist middleware to write to localStorage
-      // Poll localStorage to verify the write completed
-      const maxWaitTime = 2000; // 2 seconds max
-      const pollInterval = 50; // Check every 50ms
-      const startTime = Date.now();
+      // Zustand's persist is async and doesn't provide completion callback
+      // Use a fixed delay to ensure write completes before navigation
+      console.log('[Instrumentation] Waiting for localStorage persist...', { timestamp: new Date().toISOString() });
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
       
-      while (Date.now() - startTime < maxWaitTime) {
-        try {
-          const stored = localStorage.getItem('laugh-lab-storage');
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            if (parsed.state?.currentAnalysis?.id === result.data.id) {
-              console.log('[Instrumentation] Verified localStorage write completed', { 
-                timestamp: new Date().toISOString(),
-                waitTime: Date.now() - startTime 
-              });
-              break;
-            }
-          }
-        } catch (e) {
-          console.warn('[Instrumentation] Error checking localStorage', e);
+      // Verify the write completed
+      try {
+        const stored = localStorage.getItem('laugh-lab-storage');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          console.log('[Instrumentation] localStorage check', {
+            timestamp: new Date().toISOString(),
+            hasState: !!parsed.state,
+            hasAnalysis: !!parsed.state?.currentAnalysis,
+            analysisId: parsed.state?.currentAnalysis?.id,
+            expectedId: result.data.id,
+            match: parsed.state?.currentAnalysis?.id === result.data.id
+          });
+        } else {
+          console.warn('[Instrumentation] localStorage is empty after delay');
         }
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      } catch (e) {
+        console.error('[Instrumentation] Error checking localStorage', e);
       }
       
       console.log('[Instrumentation] About to navigate to /report', { timestamp: new Date().toISOString() });
