@@ -257,37 +257,52 @@ const hasLongestDrySpell = timeline?.longestDrySpell && timeline.longestDrySpell
 
 ---
 
-### Fix 3: Improve Report Page Error Handling
+### Fix 3: Implement Defensive Recovery Path for Report Page
 
 **File:** `src/app/report/page.tsx`
 
-**Changes:**
+**Issue:** Race condition where navigation outpaces the Zustand persist middleware, causing the report page to hydrate with `null` data and hang on "Loading your report...".
 
-1. Added delay before redirect to prevent flash of error state (lines 54-56)
+**Fix:** Added a manual rehydration check that attempts to recover the analysis directly from `localStorage` if the store state is empty after hydration.
 
 **Implementation Details:**
 
 ```typescript
-// BEFORE
-if (currentAnalysis == null) {
-  router.replace('/analyze');
-}
+// src/app/report/page.tsx
+useEffect(() => {
+  if (!hasHydrated) return;
 
-// AFTER
-if (currentAnalysis == null) {
-  // Add a small delay to prevent flash of error state
-  const timer = setTimeout(() => router.replace('/analyze'), 100);
-  return () => clearTimeout(timer);
-}
+  // Defensive check: If currentAnalysis is null, try manual recovery
+  if (currentAnalysis == null) {
+    try {
+      const stored = localStorage.getItem('laugh-lab-storage');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const persistedAnalysis = parsed.state?.currentAnalysis;
+        
+        if (persistedAnalysis) {
+          // Manually update the store with the persisted data
+          useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Manual recovery failed', e);
+    }
+
+    // Fallback to redirect if recovery fails
+    const timer = setTimeout(() => router.replace('/analyze'), 100);
+    return () => clearTimeout(timer);
+  }
+}, [currentAnalysis, hasHydrated, router]);
 ```
 
 **Impact:**
 
-- ✅ Smoother user experience during page transitions
-
-- ✅ Eliminates flash of "loading" state before redirect
-
-- ✅ Proper cleanup of timers to prevent memory leaks
+- ✅ Eliminates the "Loading your report..." hang completely
+- ✅ Ensures analysis data is available even if persistence is slow
+- ✅ Provides a robust, self-healing mechanism for page transitions
+- ✅ Maintains a seamless user experience without manual refreshes
 
 ---
 
