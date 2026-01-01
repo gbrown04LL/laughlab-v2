@@ -126,11 +126,11 @@ export const useAnalysisStore = create<AnalysisState>()(
             getItem: (name) => memoryStorage.get(name) ?? null,
             removeItem: (name) => memoryStorage.delete(name) ? undefined : undefined,
             setItem: (name, value) => {
-              const start = new Date().toISOString();
-              console.log('[Persist] setItem start (memory)', { name, start });
+              const start = performance.now();
+              console.log('[RaceInstrumentation] Zustand write start (memory)', { name, timestamp: start });
               memoryStorage.set(name, value);
-              const end = new Date().toISOString();
-              console.log('[Persist] setItem end (memory)', { name, end });
+              const end = performance.now();
+              console.log('[RaceInstrumentation] Zustand write end (memory)', { name, timestamp: end });
             },
             clear: () => memoryStorage.clear(),
             key: (index: number) => Array.from(memoryStorage.keys())[index] ?? null,
@@ -146,11 +146,11 @@ export const useAnalysisStore = create<AnalysisState>()(
           getItem: storage.getItem.bind(storage),
           removeItem: storage.removeItem.bind(storage),
           setItem: (name, value) => {
-            const start = new Date().toISOString();
-            console.log('[Persist] setItem start', { name, start });
+            const start = performance.now();
+            console.log('[RaceInstrumentation] Zustand write start', { name, timestamp: start });
             storage.setItem(name, value);
-            const end = new Date().toISOString();
-            console.log('[Persist] setItem end', { name, end });
+            const end = performance.now();
+            console.log('[RaceInstrumentation] Zustand write end', { name, timestamp: end });
           },
           clear: storage.clear.bind(storage),
           key: storage.key.bind(storage),
@@ -167,13 +167,15 @@ export const useAnalysisStore = create<AnalysisState>()(
         usageMonthKey: state.usageMonthKey,
       }),
       onRehydrateStorage: () => {
-        console.log('[Hydration] onRehydrateStorage start', new Date().toISOString());
+        const start = performance.now();
+        console.log('[RaceInstrumentation] Hydration start', { timestamp: start });
         return (state, error) => {
           if (error) {
-            console.error('[Hydration] Error during rehydration', error);
+            console.error('[RaceInstrumentation] Hydration error', error);
           }
-          console.log('[Hydration] onRehydrateStorage complete', {
-            timestamp: new Date().toISOString(),
+          const end = performance.now();
+          console.log('[RaceInstrumentation] Hydration complete', {
+            timestamp: end,
             hasAnalysis: !!state?.currentAnalysis,
           });
           useAnalysisStore.setState({ hasHydrated: true });
