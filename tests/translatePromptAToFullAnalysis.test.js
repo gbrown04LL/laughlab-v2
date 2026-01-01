@@ -63,7 +63,17 @@ const raw = {
     callbacksDetail: [{ setupLine: 10, callbackLine: 50, description: 'test' }],
     missedCallbacks: 1,
   },
-  gapAnalysis: { gaps: [{ startLine: 30, endLine: 40, length: 10, durationMin: 1 }], retentionCliff: null, gapPriorityScores: [] },
+  gapAnalysis: {
+    gaps: [
+      { startLine: 30, endLine: 60, length: 30, durationMin: 2 },
+      { startLine: 90, endLine: 130, length: 40, durationMin: 3.5 },
+    ],
+    retentionCliff: { startLine: 200, endLine: 240, length: 40, durationMin: 4.5 },
+    gapPriorityScores: [
+      { startLine: 30, endLine: 60, priority: 2 },
+      { startLine: 90, endLine: 130, priority: 1 },
+    ],
+  },
   hackyJokeAnalysis: { hackyCount: 0, issues: [] },
   recommendations: ['Add more callbacks'],
 };
@@ -75,5 +85,8 @@ assert.strictEqual(validated.metrics.totalJokes, raw.metrics.totalJokes, 'totalJ
 assert.strictEqual(validated.metrics.laughsPerMinute, raw.metrics.laughsPerMinute, 'laughsPerMinute should map through translator');
 assert.strictEqual(validated.characters.characters.length, Object.keys(raw.characterAnalysis.jokesPerCharacter).length, 'characters should map from jokesPerCharacter');
 assert.strictEqual(validated.callbacks.existingCallbacks.length, raw.callbackAnalysis.callbacksDetail.length, 'callbacks should map detail array');
+assert.ok(validated.gaps.gaps.some((gap) => gap.priority === 1), 'gap priorities should map from gapPriorityScores');
+assert.ok(validated.timeline.segments.length > 0, 'timeline segments should be generated');
+assert.ok(validated.timeline.coldSpots.length === validated.gaps.gaps.length, 'cold spots should mirror gaps');
 
 console.log('translatePromptAToFullAnalysis test passed');
