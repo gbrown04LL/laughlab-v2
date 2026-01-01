@@ -456,4 +456,7 @@ export interface AnalysisHistoryItem {
   timestamp: string;
   overallScore: number;
   format: ScriptFormat;
+  created_at?: string;
+  overall_score?: number;
+  analysis_data?: any;
 }

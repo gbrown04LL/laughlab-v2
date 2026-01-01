@@ -27,6 +27,12 @@ export function Header() {
             <Link href="/#pricing" className="nav-link">
               Pricing
             </Link>
+            <Link 
+              href="/history" 
+              className={cn('nav-link', pathname === '/history' && 'nav-link-active')}
+            >
+              History
+            </Link>
             {!isReport && (
               <Link href="/analyze" className="btn-primary text-sm py-2">
                 Analyze Script
