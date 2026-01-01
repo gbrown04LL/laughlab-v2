@@ -24,6 +24,30 @@ export default function ReportPage() {
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
   const hasHydrated = useAnalysisStore((state) => state.hasHydrated);
 
+  // Defensive recovery: if hydration finishes but analysis is missing, attempt to read persisted state
+  useEffect(() => {
+    if (!hasHydrated || currentAnalysis) return;
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem('laugh-lab-storage') : null;
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const storedAnalysis = parsed?.state?.currentAnalysis;
+
+      if (storedAnalysis) {
+        console.log('[Instrumentation] /report recovered analysis from storage', {
+          timestamp: new Date().toISOString(),
+          analysisId: storedAnalysis.id,
+        });
+        useAnalysisStore.setState({
+          currentAnalysis: storedAnalysis,
+          currentPage: 1,
+        });
+      }
+    } catch (error) {
+      console.warn('[Instrumentation] /report failed to recover analysis from storage', error);
+    }
+  }, [currentAnalysis, hasHydrated]);
+
   useEffect(() => {
     console.log('[Instrumentation] /report mounted', {
       timestamp: new Date().toISOString(),
@@ -48,10 +72,16 @@ export default function ReportPage() {
       return;
     }
     if (currentAnalysis == null) {
-      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration', {
+      console.log('[Instrumentation] /report missing analysis after hydration; scheduling redirect', {
         timestamp: new Date().toISOString(),
       });
-      router.replace('/analyze');
+      const timer = setTimeout(() => {
+        const latest = useAnalysisStore.getState().currentAnalysis;
+        if (latest == null) {
+          router.replace('/analyze');
+        }
+      }, 400);
+      return () => clearTimeout(timer);
     } else {
       console.log('[Instrumentation] /report ready to render analysis', {
         timestamp: new Date().toISOString(),

@@ -10,6 +10,12 @@ interface Page2Props {
 
 export function Page2Timeline({ analysis }: Page2Props) {
   const { timeline } = analysis;
+  const legendItems = [
+    { label: 'Laugh Score', colorClass: 'bg-laugh-400', type: 'box' as const },
+    { label: 'Target (6+)', colorClass: 'bg-emerald-500', type: 'dash' as const },
+    { label: 'Critical Gap', colorClass: 'bg-red-500/20 border border-red-500/30', type: 'box' as const },
+    { label: 'Moderate Gap', colorClass: 'bg-amber-500/20 border border-amber-500/30', type: 'box' as const },
+  ];
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -29,22 +35,18 @@ export function Page2Timeline({ analysis }: Page2Props) {
         
         {/* Legend */}
         <div className="flex flex-wrap items-center gap-6 mt-6 pt-4 border-t border-ink-800 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-laugh-400" />
-            <span className="text-ink-400">Laugh Score</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-0.5 bg-emerald-500" style={{ borderStyle: 'dashed', borderWidth: '1px' }} />
-            <span className="text-ink-400">Target (6+)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-red-500/20 border border-red-500/30" />
-            <span className="text-ink-400">Critical Gap</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded bg-amber-500/20 border border-amber-500/30" />
-            <span className="text-ink-400">Moderate Gap</span>
-          </div>
+          {legendItems.map((item) => (
+            <div key={item.label} className="flex items-center gap-2">
+              {item.type === 'dash' ? (
+                <div className="w-3 h-0.5" style={{ borderStyle: 'dashed', borderWidth: '1px', backgroundColor: 'transparent' }}>
+                  <div className={`${item.colorClass} h-0.5 w-full`} />
+                </div>
+              ) : (
+                <div className={`w-3 h-3 rounded ${item.colorClass}`} />
+              )}
+              <span className="text-ink-400">{item.label}</span>
+            </div>
+          ))}
         </div>
       </div>
 
