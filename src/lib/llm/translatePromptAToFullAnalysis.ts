@@ -463,11 +463,12 @@ function mapTimelineData(
   }));
 
   const defaultMoment: TimelineMoment = { minute: 0, line: 0, description: 'N/A', quote: '' };
-  const biggestLaugh = strongestJoke
+  const strongest = strongestJoke as { weight: number; line: number; type: JokeComplexity } | null;
+  const biggestLaugh = strongest
     ? {
-        minute: Math.max(0, Math.round((strongestJoke.line ?? 0) / Math.max(linesPerMinute, 1))),
-        line: strongestJoke.line ?? 0,
-        description: `${strongestJoke.type === 'high' ? 'High complexity' : strongestJoke.type} joke lands hardest.`,
+        minute: Math.max(0, Math.round((strongest.line ?? 0) / Math.max(linesPerMinute, 1))),
+        line: strongest.line ?? 0,
+        description: `${strongest.type === 'high' ? 'High complexity' : strongest.type} joke lands hardest.`,
         quote: '',
       }
     : defaultMoment;
