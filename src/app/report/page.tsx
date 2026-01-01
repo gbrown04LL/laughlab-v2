@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Header,
@@ -23,10 +23,11 @@ export default function ReportPage() {
   const currentPage = useAnalysisStore((state) => state.currentPage);
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
   const hasHydrated = useAnalysisStore((state) => state.hasHydrated);
+  const hasLoggedGuardRead = useRef(false);
 
   useEffect(() => {
-    console.log('[Instrumentation] /report mounted', {
-      timestamp: new Date().toISOString(),
+    console.log('[RaceInstrumentation] /report mounted', {
+      timestamp: performance.now(),
       initialHasHydrated: hasHydrated,
       hasAnalysis: !!currentAnalysis,
     });
@@ -34,84 +35,51 @@ export default function ReportPage() {
   }, []);
 
   useEffect(() => {
-    console.log('[Instrumentation] /report hydration status', {
-      timestamp: new Date().toISOString(),
+    console.log('[RaceInstrumentation] /report hydration status', {
+      timestamp: performance.now(),
       hasHydrated,
       hasAnalysis: !!currentAnalysis,
     });
   }, [currentAnalysis, hasHydrated]);
 
-  // Redirect if no analysis after hydration completes
   useEffect(() => {
-    if (!hasHydrated) {
-      console.log('[Instrumentation] /report waiting for hydration', { timestamp: new Date().toISOString() });
-      return;
+    if (!hasLoggedGuardRead.current) {
+      hasLoggedGuardRead.current = true;
+      console.log('[RaceInstrumentation] /report guard first read', {
+        timestamp: performance.now(),
+        hasHydrated,
+        hasAnalysis: !!currentAnalysis,
+      });
     }
+  }, [currentAnalysis, hasHydrated]);
 
-    // Defensive check: If currentAnalysis is null, try to manually rehydrate from localStorage
-    // This handles cases where navigation outpaced the persist middleware
+  // Redirect once hydrated without analysis
+  useEffect(() => {
+    if (!hasHydrated) return;
     if (currentAnalysis == null) {
-      console.log('[Instrumentation] /report analysis null after hydration, attempting manual recovery', {
-        timestamp: new Date().toISOString(),
+      console.log('[RaceInstrumentation] /report redirecting to /analyze (missing analysis post-hydration)', {
+        timestamp: performance.now(),
       });
-
-      try {
-        const stored = localStorage.getItem('laugh-lab-storage');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const persistedAnalysis = parsed.state?.currentAnalysis;
-          
-          if (persistedAnalysis) {
-            console.log('[Instrumentation] /report manual recovery successful', {
-              timestamp: new Date().toISOString(),
-              analysisId: persistedAnalysis.id,
-            });
-            // Manually update the store with the persisted data
-            useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
-            return;
-          }
-        }
-      } catch (e) {
-        console.error('[Instrumentation] /report manual recovery failed', e);
-      }
-
-      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration and recovery attempt', {
-        timestamp: new Date().toISOString(),
-      });
-      
-      // Add a small delay to prevent flash of error state
-      const timer = setTimeout(() => router.replace('/analyze'), 100);
-      return () => clearTimeout(timer);
-    } else {
-      console.log('[Instrumentation] /report ready to render analysis', {
-        timestamp: new Date().toISOString(),
-        analysisId: currentAnalysis.id,
-      });
+      router.replace('/analyze');
     }
   }, [currentAnalysis, hasHydrated, router]);
 
-  // Show spinner until hydration completes
-  if (!hasHydrated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="spinner" />
-          <p className="text-ink-400 text-sm">Loading your report…</p>
-        </div>
+  const renderLoading = () => (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <div className="spinner" />
+        <p className="text-ink-400 text-sm">Loading your report…</p>
       </div>
-    );
+    </div>
+  );
+
+  // Hydration-aware render states
+  if (!hasHydrated) {
+    return renderLoading();
   }
 
-  // Show spinner while redirecting (no analysis)
   if (currentAnalysis == null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="spinner" />
-          <p className="text-ink-400 text-sm">Loading your report…</p>
-        </div>
-      </div>
-    );
+    return renderLoading();
   }
 
   const analysis = currentAnalysis;
