@@ -28,7 +28,7 @@ export function LaughTimeline({ data, showGaps = true }: LaughTimelineProps) {
     laughScore: segment.laughScore,
     jokes: segment.jokeCount,
     type: segment.dominantType,
-    label: segment.dominantType === 'punchline' ? 'Punchline Peak' : segment.dominantType === 'callback' ? 'Callback' : null
+    label: segment.dominantType === 'high' ? 'Punchline Peak' : segment.dominantType === 'advanced' ? 'Callback' : null
   }));
 
   // Custom tooltip
