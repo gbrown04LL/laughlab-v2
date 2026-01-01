@@ -79,9 +79,8 @@ export default function ReportPage() {
         timestamp: new Date().toISOString(),
       });
       
-      // Add a small delay to prevent flash of error state
-      const timer = setTimeout(() => router.replace('/analyze'), 100);
-      return () => clearTimeout(timer);
+      // Redirect immediately - no analysis exists
+      router.replace('/analyze');
     } else {
       console.log('[Instrumentation] /report ready to render analysis', {
         timestamp: new Date().toISOString(),
