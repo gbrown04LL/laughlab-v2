@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Header,
@@ -12,133 +12,56 @@ import {
   Page4Gaps,
   Page5PunchUps,
   Page6Characters,
-  MentorFeedbackCard,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
 import { fetchAnalysisById } from '@/lib/supabase';
 
 export default function ReportPage() {
   const router = useRouter();
+  const [isFetchingFromSupabase, setIsFetchingFromSupabase] = useState(false);
+  const fetchAttemptedRef = useRef(false);
 
   // Read directly from store - safe after hydration
   const currentAnalysis = useAnalysisStore((state) => state.currentAnalysis);
+  const currentAnalysisId = useAnalysisStore((state) => state.currentAnalysisId);
   const currentPage = useAnalysisStore((state) => state.currentPage);
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
   const hasHydrated = useAnalysisStore((state) => state.hasHydrated);
-  const hasLoggedGuardRead = useRef(false);
 
-  // Defensive recovery: if hydration finishes but analysis is missing, attempt to read persisted state
+  // Three-stage guard: Supabase fallback when analysis is null but ID exists
   useEffect(() => {
-    if (!hasHydrated || currentAnalysis) return;
-    try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem('laugh-lab-storage') : null;
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const storedAnalysis = parsed?.state?.currentAnalysis;
+    // Stage 1: If we have analysis, nothing to do
+    if (currentAnalysis) return;
 
-      if (storedAnalysis) {
-        console.log('[Instrumentation] /report recovered analysis from storage', {
-          timestamp: new Date().toISOString(),
-          analysisId: storedAnalysis.id,
-        });
-        useAnalysisStore.setState({
-          currentAnalysis: storedAnalysis,
-          currentPage: 1,
-        });
-      }
-    } catch (error) {
-      console.warn('[Instrumentation] /report failed to recover analysis from storage', error);
-    }
-  }, [currentAnalysis, hasHydrated]);
-
-  useEffect(() => {
-    console.log('[RaceInstrumentation] /report mounted', {
-      timestamp: performance.now(),
-      initialHasHydrated: hasHydrated,
-      hasAnalysis: !!currentAnalysis,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    console.log('[RaceInstrumentation] /report hydration status', {
-      timestamp: performance.now(),
-      hasHydrated,
-      hasAnalysis: !!currentAnalysis,
-    });
-  }, [currentAnalysis, hasHydrated]);
-
-  useEffect(() => {
-    if (!hasLoggedGuardRead.current) {
-      hasLoggedGuardRead.current = true;
-      console.log('[RaceInstrumentation] /report guard first read', {
-        timestamp: performance.now(),
-        hasHydrated,
-        hasAnalysis: !!currentAnalysis,
-      });
-    }
-  }, [currentAnalysis, hasHydrated]);
-
-  // Redirect once hydrated without analysis
-  useEffect(() => {
+    // Stage 2: Wait for hydration
     if (!hasHydrated) return;
-    
-    if (currentAnalysis == null) {
-      console.log('[Instrumentation] /report analysis null after hydration, attempting manual recovery', {
-        timestamp: new Date().toISOString(),
-      });
 
-      const attemptRecovery = async () => {
-        try {
-          // 1. Try Local Storage first
-          const stored = localStorage.getItem('laugh-lab-storage');
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            const persistedAnalysis = parsed.state?.currentAnalysis;
-            
-            if (persistedAnalysis) {
-              console.log('[Instrumentation] /report local recovery successful', {
-                timestamp: new Date().toISOString(),
-                analysisId: persistedAnalysis.id,
-              });
-              useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
-              return;
-            }
-          }
+    // Stage 3: Supabase fallback
+    // Prevent duplicate fetch attempts
+    if (fetchAttemptedRef.current || isFetchingFromSupabase) return;
 
-          // 2. Try Supabase fallback if local fails
-          // We need the ID from the URL. Next.js App Router doesn't have a direct way to get params in 'use client' 
-          // without using useParams(), but we can parse the URL.
-          const pathParts = window.location.pathname.split('/');
-          const idFromUrl = pathParts[2]; // /report/[id]/metrics
-
-          if (idFromUrl && idFromUrl !== 'metrics') {
-            console.log('[Instrumentation] /report attempting Supabase fallback for ID:', idFromUrl);
-            const { success, data } = await fetchAnalysisById(idFromUrl);
-            
-            if (success && data) {
-              console.log('[Instrumentation] /report Supabase recovery successful');
-              useAnalysisStore.setState({ currentAnalysis: data });
-              return;
-            }
-          }
-        } catch (e) {
-          console.error('[Instrumentation] /report recovery failed', e);
-        }
-
-        // 3. Final Redirect if all recovery fails
-        console.log('[Instrumentation] /report redirecting - no analysis found in local or cloud');
-        router.replace('/analyze');
-      };
-
-      attemptRecovery();
-    } else {
-      console.log('[Instrumentation] /report ready to render analysis', {
-        timestamp: new Date().toISOString(),
-        analysisId: currentAnalysis.id,
-      });
+    // No ID available - redirect to analyze
+    if (!currentAnalysisId) {
+      router.replace('/analyze');
+      return;
     }
-  }, [currentAnalysis, hasHydrated, router]);
+
+    // Fetch from Supabase
+    fetchAttemptedRef.current = true;
+    setIsFetchingFromSupabase(true);
+
+    fetchAnalysisById(currentAnalysisId).then((result) => {
+      if (!result) {
+        // Fetch failed or no data - redirect
+        router.replace('/analyze');
+        return;
+      }
+
+      // Hydrate store with fetched analysis
+      useAnalysisStore.setState({ currentAnalysis: result });
+      setIsFetchingFromSupabase(false);
+    });
+  }, [currentAnalysis, hasHydrated, currentAnalysisId, router, isFetchingFromSupabase]);
 
   const renderLoading = () => (
     <div className="min-h-screen flex items-center justify-center">
@@ -151,6 +74,11 @@ export default function ReportPage() {
 
   // Hydration-aware render states
   if (!hasHydrated) {
+    return renderLoading();
+  }
+
+  // Show loading while fetching from Supabase
+  if (isFetchingFromSupabase) {
     return renderLoading();
   }
 
