@@ -11,7 +11,7 @@ const CLIENT_TIMEOUT_MS = 58000; // 58 seconds
 
 export default function AnalyzePage() {
   const router = useRouter();
-  const { setAnalysis, setAnalyzing, setError, isAnalyzing, error, userTier } = useAnalysisStore();
+  const { setAnalysis, setAnalyzing, setError, error, userTier } = useAnalysisStore();
   const [localLoading, setLocalLoading] = useState(false);
 
   const handleSubmit = async (script: string, format: ScriptFormat, title: string) => {
@@ -32,10 +32,6 @@ export default function AnalyzePage() {
       });
 
       clearTimeout(timeoutId);
-      console.log('[RaceInstrumentation] API response received', {
-        timestamp: performance.now(),
-        status: response.status,
-      });
 
       // Handle rate limiting
       if (response.status === 429) {
@@ -53,46 +49,15 @@ export default function AnalyzePage() {
       }
 
       const result: AnalyzeResponse = await response.json();
-      console.log('[RaceInstrumentation] Parsed API response', {
-        timestamp: performance.now(),
-        success: result.success,
-        hasData: !!result.data,
-      });
 
       if (!result.success || !result.data) {
-        console.error('[DEBUG] API response failed:', result.error);
         throw new Error(result.error || 'Analysis failed');
       }
 
-      // Log remaining usage from headers
-      const remaining = response.headers.get('X-Usage-Remaining');
-      if (remaining) {
-        console.log(`[Analysis] Remaining analyses this month: ${remaining}`);
-      }
-
-      console.log('[RaceInstrumentation] Before setAnalysis', {
-        timestamp: performance.now(),
-        analysisId: result.data.id,
-      });
       setAnalysis(result.data);
-      console.log('[RaceInstrumentation] After setAnalysis', {
-        timestamp: performance.now(),
-        analysisId: result.data.id,
-      });
-      
       setLocalLoading(false);
       setAnalyzing(false);
-      console.log('[RaceInstrumentation] Loading states reset', { timestamp: performance.now() });
-
-      console.log('[RaceInstrumentation] Before router.push(/report)', {
-        timestamp: performance.now(),
-        analysisId: result.data.id,
-      });
       router.push('/report');
-      console.log('[RaceInstrumentation] Navigation initiated', {
-        timestamp: performance.now(),
-        analysisId: result.data.id,
-      });
     } catch (err) {
       clearTimeout(timeoutId);
       

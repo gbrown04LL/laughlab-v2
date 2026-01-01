@@ -5,10 +5,6 @@
 
 import { z } from 'zod';
 
-// Helper to clamp numbers
-const clampNumber = (min: number, max: number) => 
-  z.number().transform(n => Math.min(Math.max(n, min), max));
-
 const safeNumber = (defaultVal: number, min: number = 0, max: number = Infinity) =>
   z.number().optional().default(defaultVal).transform(n => Math.min(Math.max(n ?? defaultVal, min), max));
 
@@ -327,12 +323,11 @@ export type ValidatedAnalysisResponse = z.infer<typeof AnalysisResponseSchema>;
 export function validateAndSanitizeAnalysis(rawData: unknown): ValidatedAnalysisResponse {
   // Parse with defaults and transformations
   const result = AnalysisResponseSchema.safeParse(rawData);
-  
+
   if (!result.success) {
-    console.warn('[Validation] Schema validation had issues, using defaults:', result.error.issues.slice(0, 5));
     // Return with maximum defaults if parsing completely fails
     return AnalysisResponseSchema.parse({});
   }
-  
+
   return result.data;
 }

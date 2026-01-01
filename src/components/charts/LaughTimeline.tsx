@@ -11,7 +11,7 @@ import {
   ReferenceLine,
   ReferenceArea,
 } from 'recharts';
-import type { TimelineData, TimelineSegment } from '@/types';
+import type { TimelineData } from '@/types';
 
 interface LaughTimelineProps {
   data: TimelineData;
@@ -32,7 +32,7 @@ export function LaughTimeline({ data, showGaps = true }: LaughTimelineProps) {
   }));
 
   // Custom tooltip
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label: _label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (

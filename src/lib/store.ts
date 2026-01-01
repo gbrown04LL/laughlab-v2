@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { AnalysisState, FullAnalysis, UserTier, AnalysisHistoryItem, TIER_FEATURES } from '@/types';
+import type { AnalysisState, FullAnalysis, UserTier, AnalysisHistoryItem } from '@/types';
 
 // Tier feature access
 const TIER_PAGE_ACCESS: Record<UserTier, number[]> = {
@@ -34,9 +34,7 @@ export const useAnalysisStore = create<AnalysisState>()(
       setAnalysis: (analysis: FullAnalysis) => {
         const state = get();
         const currentMonth = getCurrentMonthKey();
-        const start = new Date().toISOString();
-        console.log('[AnalysisStore] setAnalysis start', { analysisId: analysis.id, start });
-        
+
         // Check if we need to reset for a new month
         let newCount = state.analysesThisMonth;
         let newMonthKey = state.usageMonthKey;
@@ -70,8 +68,6 @@ export const useAnalysisStore = create<AnalysisState>()(
           analysesThisMonth: newCount + 1,
           usageMonthKey: newMonthKey,
         });
-        const end = new Date().toISOString();
-        console.log('[AnalysisStore] setAnalysis end', { analysisId: analysis.id, end });
       },
 
       setAnalyzing: (isAnalyzing: boolean) => {
@@ -125,13 +121,7 @@ export const useAnalysisStore = create<AnalysisState>()(
           return {
             getItem: (name) => memoryStorage.get(name) ?? null,
             removeItem: (name) => memoryStorage.delete(name) ? undefined : undefined,
-            setItem: (name, value) => {
-              const start = performance.now();
-              console.log('[RaceInstrumentation] Zustand write start (memory)', { name, timestamp: start });
-              memoryStorage.set(name, value);
-              const end = performance.now();
-              console.log('[RaceInstrumentation] Zustand write end (memory)', { name, timestamp: end });
-            },
+            setItem: (name, value) => memoryStorage.set(name, value),
             clear: () => memoryStorage.clear(),
             key: (index: number) => Array.from(memoryStorage.keys())[index] ?? null,
             get length() {
@@ -140,24 +130,7 @@ export const useAnalysisStore = create<AnalysisState>()(
           };
         }
 
-        const storage = window.localStorage;
-
-        return {
-          getItem: storage.getItem.bind(storage),
-          removeItem: storage.removeItem.bind(storage),
-          setItem: (name, value) => {
-            const start = performance.now();
-            console.log('[RaceInstrumentation] Zustand write start', { name, timestamp: start });
-            storage.setItem(name, value);
-            const end = performance.now();
-            console.log('[RaceInstrumentation] Zustand write end', { name, timestamp: end });
-          },
-          clear: storage.clear.bind(storage),
-          key: storage.key.bind(storage),
-          get length() {
-            return storage.length;
-          },
-        } as Storage;
+        return window.localStorage;
       }),
       partialize: (state) => ({
         currentAnalysis: state.currentAnalysis,
@@ -167,17 +140,7 @@ export const useAnalysisStore = create<AnalysisState>()(
         usageMonthKey: state.usageMonthKey,
       }),
       onRehydrateStorage: () => {
-        const start = performance.now();
-        console.log('[RaceInstrumentation] Hydration start', { timestamp: start });
-        return (state, error) => {
-          if (error) {
-            console.error('[RaceInstrumentation] Hydration error', error);
-          }
-          const end = performance.now();
-          console.log('[RaceInstrumentation] Hydration complete', {
-            timestamp: end,
-            hasAnalysis: !!state?.currentAnalysis,
-          });
+        return () => {
           useAnalysisStore.setState({ hasHydrated: true });
         };
       },

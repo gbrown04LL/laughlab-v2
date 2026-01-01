@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Header,
@@ -23,76 +23,29 @@ export default function ReportPage() {
   const currentPage = useAnalysisStore((state) => state.currentPage);
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
   const hasHydrated = useAnalysisStore((state) => state.hasHydrated);
-  const hasLoggedGuardRead = useRef(false);
-
-  useEffect(() => {
-    console.log('[RaceInstrumentation] /report mounted', {
-      timestamp: performance.now(),
-      initialHasHydrated: hasHydrated,
-      hasAnalysis: !!currentAnalysis,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    console.log('[RaceInstrumentation] /report hydration status', {
-      timestamp: performance.now(),
-      hasHydrated,
-      hasAnalysis: !!currentAnalysis,
-    });
-  }, [currentAnalysis, hasHydrated]);
-
-  useEffect(() => {
-    if (!hasLoggedGuardRead.current) {
-      hasLoggedGuardRead.current = true;
-      console.log('[RaceInstrumentation] /report guard first read', {
-        timestamp: performance.now(),
-        hasHydrated,
-        hasAnalysis: !!currentAnalysis,
-      });
-    }
-  }, [currentAnalysis, hasHydrated]);
-
   // Redirect once hydrated without analysis
   useEffect(() => {
     if (!hasHydrated) return;
-    
-    if (currentAnalysis == null) {
-      console.log('[Instrumentation] /report analysis null after hydration, attempting manual recovery', {
-        timestamp: new Date().toISOString(),
-      });
 
+    if (currentAnalysis == null) {
       try {
         const stored = localStorage.getItem('laugh-lab-storage');
         if (stored) {
           const parsed = JSON.parse(stored);
           const persistedAnalysis = parsed.state?.currentAnalysis;
-          
+
           if (persistedAnalysis) {
-            console.log('[Instrumentation] /report manual recovery successful', {
-              timestamp: new Date().toISOString(),
-              analysisId: persistedAnalysis.id,
-            });
             // Manually update the store with the persisted data
             useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
             return;
           }
         }
-      } catch (e) {
-        console.error('[Instrumentation] /report manual recovery failed', e);
+      } catch {
+        // Manual recovery failed - will redirect
       }
 
-      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration and recovery attempt', {
-        timestamp: new Date().toISOString(),
-      });
-      
       // Redirect immediately - no analysis exists
       router.replace('/analyze');
-    } else {
-      console.log('[Instrumentation] /report ready to render analysis', {
-        timestamp: new Date().toISOString(),
-        analysisId: currentAnalysis.id,
-      });
     }
   }, [currentAnalysis, hasHydrated, router]);
 

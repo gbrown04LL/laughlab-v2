@@ -1,6 +1,6 @@
 'use client';
 
-import { getScoreGradient, getScoreLabel } from '@/lib/utils';
+import { getScoreLabel } from '@/lib/utils';
 
 interface ScoreGaugeProps {
   score: number;
@@ -19,7 +19,6 @@ export function ScoreGauge({ score, size = 'lg', showLabel = true }: ScoreGaugeP
   const radius = (config.width - config.stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = (score / 100) * circumference;
-  const gradient = getScoreGradient(score);
   const label = getScoreLabel(score);
 
   return (

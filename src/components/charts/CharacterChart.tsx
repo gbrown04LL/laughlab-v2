@@ -15,7 +15,7 @@ import {
   CartesianGrid,
   Cell,
 } from 'recharts';
-import type { CharacterAnalysis, CharacterProfile } from '@/types';
+import type { CharacterAnalysis } from '@/types';
 
 interface CharacterChartProps {
   data: CharacterAnalysis;

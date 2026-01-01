@@ -427,8 +427,7 @@ Return ONLY the JSON object, no other text.`;
 export function detectFormat(script: string): string {
   const lines = script.split('\\n').length;
   const hasIntExt = /INT\\.|EXT\\./i.test(script);
-  const hasCharacterCues = /^[A-Z]{2,}[:\\s]/m.test(script);
-  
+
   if (!hasIntExt && lines < 150) {
     return 'standup';
   }

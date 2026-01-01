@@ -53,7 +53,6 @@ export async function runPromptB({
 
   const messages: Anthropic.MessageParam[] = [baseMessage];
   let attempts = 0;
-  let lastError = '';
 
   while (attempts < 2) {
     const response = await anthropic.messages.create({
@@ -70,9 +69,6 @@ export async function runPromptB({
       if (validation.ok) {
         return validation.value;
       }
-      lastError = validation.error;
-    } else {
-      lastError = 'Missing text response';
     }
 
     attempts += 1;

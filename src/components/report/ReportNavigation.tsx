@@ -5,7 +5,7 @@ import { REPORT_PAGES, cn } from '@/lib/utils';
 import { Lock } from 'lucide-react';
 
 export function ReportNavigation() {
-  const { currentPage, setCurrentPage, canAccessPage, userTier } = useAnalysisStore();
+  const { currentPage, setCurrentPage, canAccessPage } = useAnalysisStore();
 
   return (
     <div className="sticky top-20 z-40 bg-ink-950/80 backdrop-blur-md border-b border-ink-800 py-3">

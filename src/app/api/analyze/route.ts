@@ -15,8 +15,6 @@ import {
 import type { FullAnalysis, ScriptFormat, AnalyzeResponse, UserTier } from '@/types';
 
 export async function POST(request: NextRequest) {
-  const startTime = Date.now();
-  
   // Cleanup old rate limit entries
   cleanupRateLimitStore();
   
@@ -28,7 +26,6 @@ export async function POST(request: NextRequest) {
     const rateLimitResult = checkRateLimit(clientIP);
     
     if (!rateLimitResult.allowed) {
-      console.log(`[Analysis] Rate limited IP: ${clientIP}`);
       return NextResponse.json<AnalyzeResponse>(
         { success: false, error: rateLimitResult.reason || 'Too many requests' },
         { 
@@ -114,7 +111,6 @@ export async function POST(request: NextRequest) {
     const usageResult = checkUsageLimit(fingerprint, safeTier);
     
     if (!usageResult.allowed) {
-      console.log(`[Analysis] Usage limit reached for: ${fingerprint}`);
       return NextResponse.json<AnalyzeResponse>(
         { 
           success: false, 
@@ -139,10 +135,6 @@ export async function POST(request: NextRequest) {
     // ===========================================
     const detectedFormat = safeFormat === 'auto' ? detectFormat(script) : safeFormat;
 
-    console.log(
-      `[Analysis] Starting for "${safeTitle}" (${detectedFormat}), ${script.length} chars, IP: ${clientIP.slice(0, 10)}...`
-    );
-
     let validatedData;
     try {
       validatedData = await runPromptA({
@@ -151,15 +143,14 @@ export async function POST(request: NextRequest) {
         title: safeTitle,
       });
     } catch (error) {
-      console.error('[PromptA] Failed', error);
       throw error;
     }
 
     let coachFeedback = validatedData.coachNote;
     try {
       coachFeedback = await runPromptB({ analysis: validatedData });
-    } catch (error) {
-      console.error('[PromptB] Failed', error);
+    } catch {
+      // Prompt B is optional - fall back to default coach note
     }
 
     // ===========================================
@@ -189,9 +180,6 @@ export async function POST(request: NextRequest) {
     // ===========================================
     incrementUsage(fingerprint);
 
-    const duration = Date.now() - startTime;
-    console.log(`[Analysis] Completed in ${duration}ms, score: ${analysis.metrics.overallScore}, remaining: ${usageResult.remaining - 1}`);
-
     // Return with usage info in headers
     return NextResponse.json<AnalyzeResponse>(
       { success: true, data: analysis },
@@ -204,8 +192,6 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error) {
-    console.error('[Analysis] Error:', error);
-
     // Handle specific error types
     if (error instanceof Anthropic.APIError) {
       if (error.status === 401) {
