@@ -4,6 +4,7 @@ import { detectFormat } from '@/lib/prompts';
 import { generateId } from '@/lib/utils';
 import { runPromptA } from '@/lib/llm/runPromptA';
 import { runPromptB } from '@/lib/llm/runPromptB';
+import { generateCoachNote } from '@/lib/llm/generateCoachNote';
 import { 
   checkRateLimit, 
   checkUsageLimit, 
@@ -155,11 +156,20 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    // Generate Coach Note (Required)
     let coachFeedback = validatedData.coachNote;
+    
+    // If Prompt A didn't provide it (or we want to override with the refined prompt), generate it now
     try {
-      coachFeedback = await runPromptB({ analysis: validatedData });
+      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      coachFeedback = await generateCoachNote({
+        anthropic,
+        analysisJson: validatedData,
+        scriptMeta: { title: safeTitle, format: detectedFormat, tier: safeTier }
+      });
     } catch (error) {
-      console.error('[PromptB] Failed', error);
+      console.error('[CoachNote] Failed to generate, using fallback', error);
+      coachFeedback = "Your script shows promise! Focus on tightening the setups in the second act to improve pacing. Ready to analyze some punchline gaps?";
     }
 
     // ===========================================
