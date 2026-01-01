@@ -18,3 +18,4 @@ export { Page3Feedback } from './report/Page3Feedback';
 export { Page4Gaps } from './report/Page4Gaps';
 export { Page5PunchUps } from './report/Page5PunchUps';
 export { Page6Characters } from './report/Page6Characters';
+export { MentorFeedbackCard } from './report/MentorFeedbackCard';

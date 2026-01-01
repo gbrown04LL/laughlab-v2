@@ -2,13 +2,14 @@
 
 import type { FullAnalysis, FeedbackItem, QuickWin } from '@/types';
 import { cn } from '@/lib/utils';
+import { MentorFeedbackCard } from './MentorFeedbackCard';
 
 interface Page3Props {
   analysis: FullAnalysis;
 }
 
 export function Page3Feedback({ analysis }: Page3Props) {
-  const { feedback } = analysis;
+  const { feedback, coachNote } = analysis;
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -21,6 +22,11 @@ export function Page3Feedback({ analysis }: Page3Props) {
           What&apos;s working well and where you can level up.
         </p>
       </div>
+
+      {/* Mentor Feedback Card */}
+      {coachNote && (
+        <MentorFeedbackCard feedback={coachNote} />
+      )}
 
       {/* Strengths */}
       <div className="report-section">
