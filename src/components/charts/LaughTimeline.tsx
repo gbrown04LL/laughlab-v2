@@ -28,6 +28,7 @@ export function LaughTimeline({ data, showGaps = true }: LaughTimelineProps) {
     laughScore: segment.laughScore,
     jokes: segment.jokeCount,
     type: segment.dominantType,
+    label: segment.dominantType === 'punchline' ? 'Punchline Peak' : segment.dominantType === 'callback' ? 'Callback' : null
   }));
 
   // Custom tooltip
@@ -35,13 +36,19 @@ export function LaughTimeline({ data, showGaps = true }: LaughTimelineProps) {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
-        <div className="bg-ink-900 border border-ink-700 rounded-lg p-3 shadow-xl">
-          <p className="text-ink-300 text-sm font-medium mb-1">Minute {data.minute}</p>
-          <p className="text-laugh-400 font-semibold">
-            Laugh Score: {data.laughScore}/10
+        <div className="bg-slate-900/95 backdrop-blur-lg border border-laugh-500/30 rounded-xl px-4 py-3 shadow-2xl">
+          <p className="text-laugh-400 font-bold text-sm mb-1">Minute {data.minute}</p>
+          <p className="text-white text-lg font-bold">
+            {data.laughScore} laughs
           </p>
+          {data.label && (
+            <p className="text-laugh-300 text-xs mt-2 flex items-center gap-1">
+              <span className="text-laugh-400">✨</span>
+              {data.label}
+            </p>
+          )}
           <p className="text-ink-400 text-xs mt-1">
-            {data.jokes} joke{data.jokes !== 1 ? 's' : ''} • {data.type}
+            {data.jokes} joke{data.jokes !== 1 ? 's' : ''}
           </p>
         </div>
       );
