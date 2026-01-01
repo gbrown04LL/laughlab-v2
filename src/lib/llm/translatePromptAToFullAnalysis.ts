@@ -551,7 +551,7 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
       characterCount: characters.length,
     },
     metrics,
-    timeline: generateTimeline(raw),
+    timeline,
     feedback: {
       strengths: [],
       opportunities: [],
