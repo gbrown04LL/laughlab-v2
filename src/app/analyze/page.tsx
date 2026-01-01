@@ -142,8 +142,18 @@ export default function AnalyzePage() {
             <div className="card p-6 sm:p-8">
               {error && (
                 <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400">
-                  <p className="font-medium">Analysis Error</p>
-                  <p className="text-sm mt-1">{error}</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Analysis Error</p>
+                      <p className="text-sm mt-1">{error}</p>
+                    </div>
+                    <button 
+                      onClick={() => setError(null)}
+                      className="text-xs bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
               )}
 
