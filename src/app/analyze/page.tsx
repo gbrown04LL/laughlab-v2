@@ -32,7 +32,10 @@ export default function AnalyzePage() {
       });
 
       clearTimeout(timeoutId);
-      console.log('[Instrumentation] API response received', { timestamp: new Date().toISOString(), status: response.status });
+      console.log('[RaceInstrumentation] API response received', {
+        timestamp: performance.now(),
+        status: response.status,
+      });
 
       // Handle rate limiting
       if (response.status === 429) {
@@ -50,7 +53,11 @@ export default function AnalyzePage() {
       }
 
       const result: AnalyzeResponse = await response.json();
-      console.log('[Instrumentation] Parsed API response', { timestamp: new Date().toISOString(), success: result.success, hasData: !!result.data });
+      console.log('[RaceInstrumentation] Parsed API response', {
+        timestamp: performance.now(),
+        success: result.success,
+        hasData: !!result.data,
+      });
 
       if (!result.success || !result.data) {
         console.error('[DEBUG] API response failed:', result.error);
@@ -63,20 +70,29 @@ export default function AnalyzePage() {
         console.log(`[Analysis] Remaining analyses this month: ${remaining}`);
       }
 
-      console.log('[Instrumentation] About to call setAnalysis', { timestamp: new Date().toISOString(), analysisId: result.data.id });
+      console.log('[RaceInstrumentation] Before setAnalysis', {
+        timestamp: performance.now(),
+        analysisId: result.data.id,
+      });
       setAnalysis(result.data);
-      console.log('[Instrumentation] setAnalysis call returned', { timestamp: new Date().toISOString(), analysisId: result.data.id });
+      console.log('[RaceInstrumentation] After setAnalysis', {
+        timestamp: performance.now(),
+        analysisId: result.data.id,
+      });
       
       setLocalLoading(false);
       setAnalyzing(false);
-      console.log('[Instrumentation] Loading states reset', { timestamp: new Date().toISOString() });
-      
-      // Wait a tick to ensure Zustand persist middleware writes to localStorage
-      await new Promise(resolve => setTimeout(resolve, 100));
-      console.log('[Instrumentation] About to navigate to /report', { timestamp: new Date().toISOString() });
-      
+      console.log('[RaceInstrumentation] Loading states reset', { timestamp: performance.now() });
+
+      console.log('[RaceInstrumentation] Before router.push(/report)', {
+        timestamp: performance.now(),
+        analysisId: result.data.id,
+      });
       router.push('/report');
-      console.log('[Instrumentation] Navigation initiated', { timestamp: new Date().toISOString() });
+      console.log('[RaceInstrumentation] Navigation initiated', {
+        timestamp: performance.now(),
+        analysisId: result.data.id,
+      });
     } catch (err) {
       clearTimeout(timeoutId);
       
@@ -118,8 +134,18 @@ export default function AnalyzePage() {
             <div className="card p-6 sm:p-8">
               {error && (
                 <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400">
-                  <p className="font-medium">Analysis Error</p>
-                  <p className="text-sm mt-1">{error}</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Analysis Error</p>
+                      <p className="text-sm mt-1">{error}</p>
+                    </div>
+                    <button 
+                      onClick={() => setError(null)}
+                      className="text-xs bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
               )}
 

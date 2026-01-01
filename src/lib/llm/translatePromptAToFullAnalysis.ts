@@ -214,49 +214,109 @@ function mapGaps(
   return { gaps, retentionCliff: retention, recommendations };
 }
 
-function mapCharacters(raw: PromptARaw['characterAnalysis'], metricBalance: number) {
-  const entries = Object.entries(raw?.jokesPerCharacter ?? {});
-  const totalJokes = entries.reduce((acc, [, count]) => acc + (count ?? 0), 0);
+function generateTimeline(raw: PromptARaw) {
+  const jokesByLine = raw?.jokeAnalysis?.jokesByLine ?? [];
+  const totalLines = raw?.metadata?.totalLines ?? 1;
+  const runtimeMinutes = raw?.metadata?.estimatedRuntimeMin ?? raw?.metrics?.runtimeMinutes ?? 1;
+  const gaps = raw?.gapAnalysis?.gaps ?? [];
 
-  const characters: CharacterProfile[] = entries.map(([name, count]) => ({
-    name,
-    jokeCount: count ?? 0,
-    jokePercentage: totalJokes ? (count / totalJokes) * 100 : 0,
-    primaryStyle: '',
-    strongestMoment: '',
-    voiceConsistency: 0,
-    screenTimeEstimate: 0,
-  }));
+  // Generate segments (divide script into ~10-20 segments)
+  const segmentCount = Math.min(Math.max(Math.floor(runtimeMinutes / 0.5), 5), 20);
+  const linesPerSegment = Math.ceil(totalLines / segmentCount);
+  
+  const segments = [];
+  for (let i = 0; i < segmentCount; i++) {
+    const startLine = i * linesPerSegment + 1;
+    const endLine = Math.min((i + 1) * linesPerSegment, totalLines);
+    const startMinute = (startLine / totalLines) * runtimeMinutes;
+    const endMinute = (endLine / totalLines) * runtimeMinutes;
+    
+    // Count jokes in this segment
+    const jokesInSegment = jokesByLine.filter(
+      (joke) => joke.line >= startLine && joke.line <= endLine
+    );
+    
+    const jokeCount = jokesInSegment.length;
+    const segmentDuration = endMinute - startMinute;
+    const laughScore = Math.min((jokeCount / Math.max(segmentDuration, 0.1)) * 1.5, 10);
+    
+    // Determine dominant type
+    const typeCounts: Record<string, number> = {};
+    jokesInSegment.forEach((joke) => {
+      const type = joke.type === 'HighComplexity' ? 'high' : joke.type.toLowerCase();
+      typeCounts[type] = (typeCounts[type] || 0) + 1;
+    });
+    const dominantType = Object.keys(typeCounts).reduce((a, b) => 
+      typeCounts[a] > typeCounts[b] ? a : b, 'standard'
+    );
+    
+    segments.push({
+      segmentNumber: i + 1,
+      startLine,
+      endLine,
+      startMinute,
+      endMinute,
+      jokeCount,
+      laughScore,
+      dominantType: dominantType as any,
+    });
+  }
 
-  const dominant = entries.reduce(
-    (acc, [name, count]) => (count > acc.count ? { name, count } : acc),
-    { name: null as string | null, count: 0 }
+  // Find hot spots (segments with high laugh scores)
+  const hotSpots = segments
+    .filter((seg) => seg.laughScore >= 6)
+    .map((seg) => ({
+      startMinute: seg.startMinute,
+      endMinute: seg.endMinute,
+      description: `High comedy density with ${seg.jokeCount} jokes`,
+      jokeCount: seg.jokeCount,
+    }));
+
+  // Convert gaps to cold spots
+  const coldSpots = gaps.map((gap) => {
+    const startMinute = (gap.startLine / totalLines) * runtimeMinutes;
+    const endMinute = (gap.endLine / totalLines) * runtimeMinutes;
+    const durationMinutes = gap.durationMin ?? (endMinute - startMinute);
+    
+    return {
+      startMinute,
+      endMinute,
+      durationMinutes,
+      severity: durationMinutes > 2 ? 'critical' : durationMinutes > 1 ? 'moderate' : 'minor',
+      suggestion: `Add jokes between lines ${gap.startLine}-${gap.endLine}`,
+    };
+  }) as any[];
+
+  // Find biggest laugh (segment with highest score)
+  const biggestSegment = segments.reduce((max, seg) => 
+    seg.laughScore > max.laughScore ? seg : max, segments[0] || { laughScore: 0, startMinute: 0, startLine: 0 }
   );
-
-  const balance: CharacterBalance = {
-    score: clamp((metricBalance ?? 0) * 100, 0, 100),
-    status: 'balanced',
-    dominantCharacter: dominant.name,
-    underutilized: [],
+  
+  const biggestLaugh = {
+    minute: Math.floor(biggestSegment.startMinute),
+    line: biggestSegment.startLine,
+    description: `Peak comedy moment with ${biggestSegment.jokeCount} jokes`,
+    quote: '',
   };
 
-  return { characters, balance };
-}
+  // Find longest dry spell (largest gap)
+  const longestGap = gaps.reduce((max, gap) => 
+    (gap.durationMin ?? 0) > (max.durationMin ?? 0) ? gap : max, gaps[0] || { durationMin: 0, startLine: 0 }
+  );
 
-function mapCallbacks(raw: PromptARaw['callbackAnalysis']): CallbackAnalysis {
-  const existingCallbacks: Callback[] = (raw?.callbacksDetail ?? []).map((item) => ({
-    setupLine: item.setupLine ?? 0,
-    setupQuote: '',
-    payoffLine: item.callbackLine ?? 0,
-    payoffQuote: '',
-    effectiveness: 'medium',
-  }));
+  const longestDrySpell = {
+    minute: Math.floor((longestGap.startLine / totalLines) * runtimeMinutes),
+    line: longestGap.startLine,
+    description: `Few laughs for ~${longestGap.durationMin?.toFixed(1) || 0} minutes`,
+    quote: '',
+  };
 
   return {
-    existingCallbacks,
-    missedOpportunities: [],
-    callbackScore: raw?.callbackFrequency ?? 0,
-    recommendations: [],
+    segments,
+    hotSpots,
+    coldSpots,
+    biggestLaugh,
+    longestDrySpell,
   };
 }
 
@@ -269,37 +329,39 @@ function mapTimelineData(
   retentionCliff: Gap | null
 ) {
   const jokes = raw?.jokeAnalysis?.jokesByLine ?? [];
-  const highestLine = jokes.reduce((max, joke) => Math.max(max, joke.line ?? 0), totalLines);
-  const baseMinutes = runtimeMinutes > 0 ? Math.max(1, Math.round(runtimeMinutes)) : 0;
-  const minutesFromLines = linesPerMinute > 0 ? Math.ceil((highestLine || totalLines) / linesPerMinute) : 0;
-  const minutesFromGaps = Math.ceil(
-    Math.max(
-      0,
-      ...gaps.map((gap) => gap.endMinute),
-      retentionCliff?.endMinute ?? 0
-    )
-  );
-  const totalMinutes = Math.max(1, baseMinutes, minutesFromLines, minutesFromGaps);
+  const segmentCount = Math.max(Math.floor(runtimeMinutes * 2), 10);
+  const linesPerSegment = Math.ceil(totalLines / segmentCount);
 
-  const complexityWeights: Record<
-    PromptARaw['jokeAnalysis']['jokesByLine'][number]['type'],
-    { weight: number; mapped: JokeComplexity }
-  > = {
-    Basic: { weight: 1, mapped: 'basic' },
-    Standard: { weight: 1.25, mapped: 'standard' },
-    Intermediate: { weight: 1.5, mapped: 'intermediate' },
-    Advanced: { weight: 1.8, mapped: 'advanced' },
-    HighComplexity: { weight: 2.1, mapped: 'high' },
-  };
+  const segments = Array.from({ length: segmentCount }, (_, i) => {
+    const startLine = i * linesPerSegment + 1;
+    const endLine = Math.min((i + 1) * linesPerSegment, totalLines);
+    const startMinute = Number((startLine / linesPerMinute).toFixed(1));
+    const endMinute = Number((endLine / linesPerMinute).toFixed(1));
 
-  const buckets = Array.from({ length: totalMinutes }, (_, minute) => ({
-    minute,
-    startLine: Math.round(minute * linesPerMinute),
-    endLine: Math.round((minute + 1) * linesPerMinute),
-    count: 0,
-    weighted: 0,
-    typeCounts: {} as Partial<Record<JokeComplexity, number>>,
-  }));
+    const jokesInSegment = jokes.filter((j) => j.line >= startLine && j.line <= endLine);
+    const jokeCount = jokesInSegment.length;
+    const duration = Math.max(endMinute - startMinute, 0.1);
+    const laughScore = Math.min((jokeCount / duration) * 1.5, 10);
+
+    const typeCounts: Record<string, number> = {};
+    jokesInSegment.forEach((j) => {
+      const type = j.type === 'HighComplexity' ? 'high' : j.type.toLowerCase();
+      typeCounts[type] = (typeCounts[type] || 0) + 1;
+    });
+    const dominantType = (Object.keys(typeCounts).reduce((a, b) => (typeCounts[a] > typeCounts[b] ? a : b), 'standard') as any);
+
+    return {
+      segmentNumber: i + 1,
+      startLine,
+      endLine,
+      startMinute,
+      endMinute,
+      jokeCount,
+      laughScore,
+      dominantType,
+      typeCounts: {} as Partial<Record<JokeComplexity, number>>,
+    };
+  });
 
   let strongestJoke: { weight: number; line: number; type: JokeComplexity } | null = null;
 
@@ -309,53 +371,19 @@ function mapTimelineData(
     const peakMoments = Math.max(1, Math.min(buckets.length, raw?.metrics?.peakLaughMoments ?? 0));
     const boostInterval = Math.max(1, Math.floor(buckets.length / peakMoments));
 
-    buckets.forEach((bucket, index) => {
-      // Baseline laughs per minute
-      bucket.count = baselineRate;
-      bucket.weighted = baselineRate;
-
-      // Add a small boost at spread-out intervals to create visible peaks
-      if (peakMoments > 0 && index % boostInterval === 0) {
-        bucket.count += 0.75;
-        bucket.weighted += 0.75;
+    segments.forEach((seg, i) => {
+      const isPeak = i % boostInterval === 0;
+      seg.laughScore = clamp(baselineRate * (isPeak ? 1.8 : 0.7), 0, 10);
+      seg.jokeCount = Math.round(seg.laughScore * (seg.endMinute - seg.startMinute));
+    });
+  } else {
+    jokes.forEach((j) => {
+      const weight = j.type === 'HighComplexity' ? 5 : j.type === 'Advanced' ? 4 : 3;
+      if (!strongestJoke || weight > strongestJoke.weight) {
+        strongestJoke = { weight, line: j.line, type: (j.type === 'HighComplexity' ? 'high' : j.type.toLowerCase()) as any };
       }
     });
   }
-
-  jokes.forEach((joke) => {
-    const weight = complexityWeights[joke.type] ?? complexityWeights.Standard;
-    const minuteIndex = Math.min(
-      buckets.length - 1,
-      Math.max(0, Math.floor(((joke.line ?? 1) - 1) / linesPerMinute))
-    );
-    const bucket = buckets[minuteIndex];
-
-    bucket.count += 1;
-    bucket.weighted += weight.weight;
-    bucket.typeCounts[weight.mapped] = (bucket.typeCounts[weight.mapped] ?? 0) + 1;
-
-    if (!strongestJoke || weight.weight > strongestJoke.weight) {
-      strongestJoke = { weight: weight.weight, line: joke.line ?? 0, type: weight.mapped };
-    }
-  });
-
-  const segments = buckets.map((bucket, index) => {
-    const dominantType =
-      (Object.entries(bucket.typeCounts).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0]?.[0] as JokeComplexity) ||
-      'standard';
-    const laughScore = clamp(Number((bucket.weighted * 2).toFixed(1)), 0, 10);
-
-    return {
-      segmentNumber: index + 1,
-      startLine: bucket.startLine,
-      endLine: bucket.endLine,
-      startMinute: bucket.minute,
-      endMinute: bucket.minute + 1,
-      jokeCount: bucket.count,
-      laughScore,
-      dominantType,
-    };
-  });
 
   if (!strongestJoke && segments.length > 0) {
     const maxSegment = segments.reduce((max, segment) => (segment.laughScore > max.laughScore ? segment : max), segments[0]);
@@ -367,13 +395,12 @@ function mapTimelineData(
   }
 
   const hotSpots = segments
-    .filter((segment) => segment.laughScore >= 6 && segment.jokeCount > 0)
-    .slice(0, 3)
-    .map((segment) => ({
-      startMinute: segment.startMinute,
-      endMinute: segment.endMinute,
-      description: `Sustained laughs around minute ${segment.startMinute}-${segment.endMinute}`,
-      jokeCount: segment.jokeCount,
+    .filter((s) => s.laughScore >= 7)
+    .map((s) => ({
+      startMinute: s.startMinute,
+      endMinute: s.endMinute,
+      description: `High density comedy sequence (${s.jokeCount} jokes).`,
+      jokeCount: s.jokeCount,
     }));
 
   const coldSpots = gaps.map((gap) => ({
@@ -385,11 +412,12 @@ function mapTimelineData(
   }));
 
   const defaultMoment: TimelineMoment = { minute: 0, line: 0, description: 'N/A', quote: '' };
-  const biggestLaugh = strongestJoke
+  const strongest = strongestJoke as { weight: number; line: number; type: JokeComplexity } | null;
+  const biggestLaugh = strongest
     ? {
-        minute: Math.max(0, Math.round((strongestJoke.line ?? 0) / Math.max(linesPerMinute, 1))),
-        line: strongestJoke.line ?? 0,
-        description: `${strongestJoke.type === 'high' ? 'High complexity' : strongestJoke.type} joke lands hardest.`,
+        minute: Math.max(0, Math.round((strongest.line ?? 0) / Math.max(linesPerMinute, 1))),
+        line: strongest.line ?? 0,
+        description: `${strongest.type === 'high' ? 'High complexity' : strongest.type} joke lands hardest.`,
         quote: '',
       }
     : defaultMoment;
@@ -407,14 +435,7 @@ function mapTimelineData(
           description: `Few laughs for ~${longestDrySpot.durationMinutes} minutes`,
           quote: '',
         }
-      : segments.length > 0
-        ? {
-            minute: Math.round(segments.reduce((min, segment) => (segment.laughScore < min.laughScore ? segment : min), segments[0]).startMinute),
-            line: segments[0].startLine,
-            description: 'Lower laugh density in this section.',
-            quote: '',
-          }
-        : defaultMoment;
+      : defaultMoment;
 
   return {
     segments,
@@ -460,7 +481,7 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
   const characterBalanceScore = raw?.metrics?.characterBalanceScore ?? raw?.characterAnalysis?.characterBalanceScore ?? 0;
   const { characters, balance } = mapCharacters(raw?.characterAnalysis ?? ({} as any), characterBalanceScore);
   const callbacks = mapCallbacks(raw?.callbackAnalysis ?? ({} as any));
-  const timeline = mapTimelineData(raw, runtimeMinutes, totalLines, linesPerMinute, gaps, retentionCliff);
+  const timeline = generateTimeline(raw);
 
   const summary = (raw?.recommendations ?? []).join(' ').trim() || '';
   const coachNote = summary;
@@ -520,5 +541,42 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
     callbacks,
     summary,
     coachNote,
+  };
+}
+
+function mapCharacters(raw: any, score: number): { characters: CharacterProfile[]; balance: CharacterBalance } {
+  const jokesPerCharacter = raw?.jokesPerCharacter ?? {};
+  const characters: CharacterProfile[] = Object.entries(jokesPerCharacter).map(([name, jokes]) => ({
+    name,
+    jokeCount: jokes as number,
+    lines: 0,
+    sentiment: 'neutral',
+    traits: [],
+  }));
+
+  return {
+    characters,
+    balance: {
+      score,
+      status: score >= 70 ? 'balanced' : 'unbalanced',
+      analysis: 'Character distribution analysis based on joke frequency.',
+    },
+  };
+}
+
+function mapCallbacks(raw: any): CallbackAnalysis {
+  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any, i: number) => ({
+    id: `cb_${i}`,
+    setupLine: c.setupLine,
+    callbackLine: c.callbackLine,
+    description: c.description,
+    impact: 'high',
+  }));
+
+  return {
+    total: raw?.totalCallbacks ?? 0,
+    frequency: raw?.callbackFrequency ?? 0,
+    missedOpportunities: raw?.missedCallbacks ?? 0,
+    callbacks: details,
   };
 }
