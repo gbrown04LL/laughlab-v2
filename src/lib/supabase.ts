@@ -57,3 +57,22 @@ export async function fetchAnalysisHistory(fingerprint?: string) {
     return { success: false, error };
   }
 }
+
+/**
+ * Helper to fetch a single analysis by ID from Supabase
+ */
+export async function fetchAnalysisById(id: string) {
+  try {
+    const { data, error } = await supabase
+      .from("reports")
+      .select("analysis_data")
+      .eq("id", id)
+      .single();
+
+    if (error) throw error;
+    return { success: true, data: data.analysis_data };
+  } catch (error) {
+    console.error("Error fetching analysis by ID:", error);
+    return { success: false, error };
+  }
+}

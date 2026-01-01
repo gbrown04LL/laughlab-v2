@@ -14,6 +14,7 @@ import {
   Page6Characters,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
+import { fetchAnalysisById } from '@/lib/supabase';
 
 export default function ReportPage() {
   const router = useRouter();
@@ -86,32 +87,50 @@ export default function ReportPage() {
         timestamp: new Date().toISOString(),
       });
 
-      try {
-        const stored = localStorage.getItem('laugh-lab-storage');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const persistedAnalysis = parsed.state?.currentAnalysis;
-          
-          if (persistedAnalysis) {
-            console.log('[Instrumentation] /report manual recovery successful', {
-              timestamp: new Date().toISOString(),
-              analysisId: persistedAnalysis.id,
-            });
-            // Manually update the store with the persisted data
-            useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
-            return;
+      const attemptRecovery = async () => {
+        try {
+          // 1. Try Local Storage first
+          const stored = localStorage.getItem('laugh-lab-storage');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const persistedAnalysis = parsed.state?.currentAnalysis;
+            
+            if (persistedAnalysis) {
+              console.log('[Instrumentation] /report local recovery successful', {
+                timestamp: new Date().toISOString(),
+                analysisId: persistedAnalysis.id,
+              });
+              useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
+              return;
+            }
           }
-        }
-      } catch (e) {
-        console.error('[Instrumentation] /report manual recovery failed', e);
-      }
 
-      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration and recovery attempt', {
-        timestamp: new Date().toISOString(),
-      });
-      
-      // Redirect immediately - no analysis exists
-      router.replace('/analyze');
+          // 2. Try Supabase fallback if local fails
+          // We need the ID from the URL. Next.js App Router doesn't have a direct way to get params in 'use client' 
+          // without using useParams(), but we can parse the URL.
+          const pathParts = window.location.pathname.split('/');
+          const idFromUrl = pathParts[2]; // /report/[id]/metrics
+
+          if (idFromUrl && idFromUrl !== 'metrics') {
+            console.log('[Instrumentation] /report attempting Supabase fallback for ID:', idFromUrl);
+            const { success, data } = await fetchAnalysisById(idFromUrl);
+            
+            if (success && data) {
+              console.log('[Instrumentation] /report Supabase recovery successful');
+              useAnalysisStore.setState({ currentAnalysis: data });
+              return;
+            }
+          }
+        } catch (e) {
+          console.error('[Instrumentation] /report recovery failed', e);
+        }
+
+        // 3. Final Redirect if all recovery fails
+        console.log('[Instrumentation] /report redirecting - no analysis found in local or cloud');
+        router.replace('/analyze');
+      };
+
+      attemptRecovery();
     } else {
       console.log('[Instrumentation] /report ready to render analysis', {
         timestamp: new Date().toISOString(),
