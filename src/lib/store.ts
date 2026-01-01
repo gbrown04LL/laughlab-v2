@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { AnalysisState, FullAnalysis, UserTier, AnalysisHistoryItem, TIER_FEATURES } from '@/types';
 
 // Tier feature access
@@ -28,6 +28,7 @@ export const useAnalysisStore = create<AnalysisState>()(
       analysesThisMonth: 0,
       usageMonthKey: getCurrentMonthKey(), // Track which month the count is for
       history: [],
+      hasHydrated: false,
 
       // Actions
       setAnalysis: (analysis: FullAnalysis) => {
@@ -117,6 +118,39 @@ export const useAnalysisStore = create<AnalysisState>()(
         analysesThisMonth: state.analysesThisMonth,
         usageMonthKey: state.usageMonthKey,
       }),
+      storage: createJSONStorage(() => ({
+        getItem: (name: string) => {
+          const timestamp = new Date().toISOString();
+          console.log(`[PERSIST][${timestamp}] getItem called for ${name}`);
+          return localStorage.getItem(name);
+        },
+        setItem: (name: string, value: string) => {
+          const start = new Date().toISOString();
+          console.log(`[PERSIST][${start}] setItem start for ${name}`);
+          localStorage.setItem(name, value);
+          const end = new Date().toISOString();
+          console.log(`[PERSIST][${end}] setItem end for ${name}`);
+        },
+        removeItem: (name: string) => {
+          const timestamp = new Date().toISOString();
+          console.log(`[PERSIST][${timestamp}] removeItem called for ${name}`);
+          localStorage.removeItem(name);
+        },
+      })),
+      onRehydrateStorage: () => {
+        const timestamp = new Date().toISOString();
+        console.log(`[PERSIST][${timestamp}] onRehydrateStorage start`);
+        return (state, error) => {
+          const completeTimestamp = new Date().toISOString();
+          if (error) {
+            console.error(`[PERSIST][${completeTimestamp}] rehydration error`, error);
+          }
+          useAnalysisStore.setState({ hasHydrated: true });
+          console.log(
+            `[PERSIST][${completeTimestamp}] onRehydrateStorage complete | hasHydrated=true | currentAnalysis present: ${Boolean(state?.currentAnalysis)}`
+          );
+        };
+      },
     }
   )
 );

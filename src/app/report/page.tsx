@@ -31,20 +31,41 @@ export default function ReportPage() {
     (state: AnalysisState) => state.currentPage
   ) ?? 1;
   
+  const hasHydrated = useStoreHydration(
+    useAnalysisStore,
+    (state: AnalysisState) => state.hasHydrated
+  );
+
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
 
   // Redirect if no analysis after hydration
   useEffect(() => {
-    if (currentAnalysis === undefined) return; // Still hydrating
+    if (hasHydrated === undefined) {
+      console.log('[GUARD] Hydration flag not ready yet');
+      return;
+    }
+    if (!hasHydrated || currentAnalysis === undefined) return; // Still hydrating
+    console.log('[GUARD] Hydration complete. currentAnalysis present:', Boolean(currentAnalysis));
     if (!currentAnalysis) {
+      console.log('[GUARD] No analysis found after hydration. Redirecting to /analyze');
       router.push('/analyze');
     }
-  }, [currentAnalysis, router]);
+  }, [currentAnalysis, hasHydrated, router]);
+
+  if (!hasHydrated || currentAnalysis === undefined) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center space-y-4">
+        <div className="spinner" />
+        <p className="text-ink-300">Loading your report...</p>
+      </div>
+    );
+  }
 
   if (!currentAnalysis) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex flex-col items-center justify-center space-y-4">
         <div className="spinner" />
+        <p className="text-ink-300">Redirecting…</p>
       </div>
     );
   }

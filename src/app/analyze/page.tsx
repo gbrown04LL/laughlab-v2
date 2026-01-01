@@ -49,7 +49,7 @@ export default function AnalyzePage() {
       }
 
       const result: AnalyzeResponse = await response.json();
-      console.log('[DEBUG] API response received:', { success: result.success, hasData: !!result.data });
+      console.log('[INSTRUMENT] API response received:', { success: result.success, hasData: !!result.data, timestamp: new Date().toISOString() });
 
       if (!result.success || !result.data) {
         console.error('[DEBUG] API response failed:', result.error);
@@ -62,9 +62,9 @@ export default function AnalyzePage() {
         console.log(`[Analysis] Remaining analyses this month: ${remaining}`);
       }
 
-      console.log('[DEBUG] About to call setAnalysis with:', result.data.id);
+      console.log('[INSTRUMENT] About to call setAnalysis with:', result.data.id, 'at', new Date().toISOString());
       setAnalysis(result.data);
-      console.log('[DEBUG] setAnalysis called successfully');
+      console.log('[INSTRUMENT] setAnalysis called successfully at', new Date().toISOString());
       
       setLocalLoading(false);
       setAnalyzing(false);
@@ -72,10 +72,10 @@ export default function AnalyzePage() {
       
       // Wait a tick to ensure Zustand persist middleware writes to localStorage
       await new Promise(resolve => setTimeout(resolve, 100));
-      console.log('[DEBUG] About to navigate to /report');
+      console.log('[INSTRUMENT] About to navigate to /report at', new Date().toISOString());
       
       router.push('/report');
-      console.log('[DEBUG] Navigation initiated');
+      console.log('[INSTRUMENT] Navigation initiated at', new Date().toISOString());
     } catch (err) {
       clearTimeout(timeoutId);
       
