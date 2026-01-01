@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { AnalysisState, FullAnalysis, UserTier, AnalysisHistoryItem, TIER_FEATURES } from '@/types';
+import { saveAnalysisToSupabase } from './supabase';
 
 // Tier feature access
 const TIER_PAGE_ACCESS: Record<UserTier, number[]> = {
@@ -70,6 +71,16 @@ export const useAnalysisStore = create<AnalysisState>()(
           analysesThisMonth: newCount + 1,
           usageMonthKey: newMonthKey,
         });
+
+        // Sync to Supabase (async, don't block UI)
+        saveAnalysisToSupabase(analysis).then(result => {
+          if (result.success) {
+            console.log('[AnalysisStore] Successfully synced to Supabase');
+          } else {
+            console.warn('[AnalysisStore] Supabase sync failed, falling back to local only');
+          }
+        });
+
         const end = new Date().toISOString();
         console.log('[AnalysisStore] setAnalysis end', { analysisId: analysis.id, end });
       },
