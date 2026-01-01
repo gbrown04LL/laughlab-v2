@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Header,
@@ -14,87 +14,54 @@ import {
   Page6Characters,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
+import { fetchAnalysisById } from '@/lib/supabase';
 
 export default function ReportPage() {
   const router = useRouter();
+  const [isFetchingFromSupabase, setIsFetchingFromSupabase] = useState(false);
+  const fetchAttemptedRef = useRef(false);
 
   // Read directly from store - safe after hydration
   const currentAnalysis = useAnalysisStore((state) => state.currentAnalysis);
+  const currentAnalysisId = useAnalysisStore((state) => state.currentAnalysisId);
   const currentPage = useAnalysisStore((state) => state.currentPage);
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
   const hasHydrated = useAnalysisStore((state) => state.hasHydrated);
-  const hasLoggedGuardRead = useRef(false);
 
+  // Three-stage guard: Supabase fallback when analysis is null but ID exists
   useEffect(() => {
-    console.log('[RaceInstrumentation] /report mounted', {
-      timestamp: performance.now(),
-      initialHasHydrated: hasHydrated,
-      hasAnalysis: !!currentAnalysis,
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Stage 1: If we have analysis, nothing to do
+    if (currentAnalysis) return;
 
-  useEffect(() => {
-    console.log('[RaceInstrumentation] /report hydration status', {
-      timestamp: performance.now(),
-      hasHydrated,
-      hasAnalysis: !!currentAnalysis,
-    });
-  }, [currentAnalysis, hasHydrated]);
-
-  useEffect(() => {
-    if (!hasLoggedGuardRead.current) {
-      hasLoggedGuardRead.current = true;
-      console.log('[RaceInstrumentation] /report guard first read', {
-        timestamp: performance.now(),
-        hasHydrated,
-        hasAnalysis: !!currentAnalysis,
-      });
-    }
-  }, [currentAnalysis, hasHydrated]);
-
-  // Redirect once hydrated without analysis
-  useEffect(() => {
+    // Stage 2: Wait for hydration
     if (!hasHydrated) return;
-    
-    if (currentAnalysis == null) {
-      console.log('[Instrumentation] /report analysis null after hydration, attempting manual recovery', {
-        timestamp: new Date().toISOString(),
-      });
 
-      try {
-        const stored = localStorage.getItem('laugh-lab-storage');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          const persistedAnalysis = parsed.state?.currentAnalysis;
-          
-          if (persistedAnalysis) {
-            console.log('[Instrumentation] /report manual recovery successful', {
-              timestamp: new Date().toISOString(),
-              analysisId: persistedAnalysis.id,
-            });
-            // Manually update the store with the persisted data
-            useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
-            return;
-          }
-        }
-      } catch (e) {
-        console.error('[Instrumentation] /report manual recovery failed', e);
+    // Stage 3: Supabase fallback
+    // Prevent duplicate fetch attempts
+    if (fetchAttemptedRef.current || isFetchingFromSupabase) return;
+
+    // No ID available - redirect to analyze
+    if (!currentAnalysisId) {
+      router.replace('/analyze');
+      return;
+    }
+
+    // Fetch from Supabase
+    fetchAttemptedRef.current = true;
+    setIsFetchingFromSupabase(true);
+
+    fetchAnalysisById(currentAnalysisId).then((result) => {
+      if (!result) {
+        // Fetch failed or no data - redirect
+        router.replace('/analyze');
+        return;
       }
 
-      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration and recovery attempt', {
-        timestamp: new Date().toISOString(),
-      });
-      
-      // Redirect immediately - no analysis exists
-      router.replace('/analyze');
-    } else {
-      console.log('[Instrumentation] /report ready to render analysis', {
-        timestamp: new Date().toISOString(),
-        analysisId: currentAnalysis.id,
-      });
-    }
-  }, [currentAnalysis, hasHydrated, router]);
+      // Hydrate store with fetched analysis
+      useAnalysisStore.setState({ currentAnalysis: result });
+      setIsFetchingFromSupabase(false);
+    });
+  }, [currentAnalysis, hasHydrated, currentAnalysisId, router, isFetchingFromSupabase]);
 
   const renderLoading = () => (
     <div className="min-h-screen flex items-center justify-center">
@@ -107,6 +74,11 @@ export default function ReportPage() {
 
   // Hydration-aware render states
   if (!hasHydrated) {
+    return renderLoading();
+  }
+
+  // Show loading while fetching from Supabase
+  if (isFetchingFromSupabase) {
     return renderLoading();
   }
 

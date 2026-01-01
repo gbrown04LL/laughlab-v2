@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { FullAnalysis } from '@/types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -56,4 +57,23 @@ export async function fetchAnalysisHistory(fingerprint?: string) {
     console.error('Error fetching analysis history:', error);
     return { success: false, error };
   }
+}
+
+/**
+ * Helper to fetch a single analysis by ID from Supabase
+ */
+export async function fetchAnalysisById(
+  id: string
+): Promise<FullAnalysis | null> {
+  const { data, error } = await supabase
+    .from('reports')
+    .select('analysis_data')
+    .eq('id', id)
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data.analysis_data as FullAnalysis;
 }

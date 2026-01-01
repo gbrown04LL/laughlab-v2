@@ -22,6 +22,7 @@ export const useAnalysisStore = create<AnalysisState>()(
     (set, get) => ({
       // Initial state
       currentAnalysis: null,
+      currentAnalysisId: null,
       hasHydrated: false,
       isAnalyzing: false,
       error: null,
@@ -64,6 +65,7 @@ export const useAnalysisStore = create<AnalysisState>()(
         
         set({
           currentAnalysis: analysis,
+          currentAnalysisId: analysis.id,
           isAnalyzing: false,
           error: null,
           currentPage: 1,
@@ -89,6 +91,10 @@ export const useAnalysisStore = create<AnalysisState>()(
         set({ isAnalyzing, error: null });
       },
 
+      setCurrentAnalysisId: (id: string | null) => {
+        set({ currentAnalysisId: id });
+      },
+
       setError: (error: string | null) => {
         set({ error, isAnalyzing: false });
       },
@@ -101,7 +107,7 @@ export const useAnalysisStore = create<AnalysisState>()(
       },
 
       clearAnalysis: () => {
-        set({ currentAnalysis: null, error: null, currentPage: 1 });
+        set({ currentAnalysis: null, currentAnalysisId: null, error: null, currentPage: 1 });
       },
 
       markHydrated: () => {
@@ -172,6 +178,7 @@ export const useAnalysisStore = create<AnalysisState>()(
       }),
       partialize: (state) => ({
         currentAnalysis: state.currentAnalysis,
+        currentAnalysisId: state.currentAnalysisId,
         history: state.history,
         userTier: state.userTier,
         analysesThisMonth: state.analysesThisMonth,

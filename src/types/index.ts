@@ -424,23 +424,25 @@ export const TIER_FEATURES: Record<UserTier, {
 export interface AnalysisState {
   // Current analysis
   currentAnalysis: FullAnalysis | null;
+  currentAnalysisId: string | null;
   hasHydrated: boolean;
-  
+
   // UI state
   isAnalyzing: boolean;
   error: string | null;
   currentPage: number;
-  
+
   // User state (simplified - will expand with Supabase)
   userTier: UserTier;
   analysesThisMonth: number;
   usageMonthKey: string; // "2025-01" format for calendar month reset
-  
+
   // History
   history: AnalysisHistoryItem[];
-  
+
   // Actions
   setAnalysis: (analysis: FullAnalysis) => void;
+  setCurrentAnalysisId: (id: string | null) => void;
   setAnalyzing: (isAnalyzing: boolean) => void;
   setError: (error: string | null) => void;
   setCurrentPage: (page: number) => void;
