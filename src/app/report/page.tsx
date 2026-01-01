@@ -56,11 +56,43 @@ export default function ReportPage() {
   // Redirect once hydrated without analysis
   useEffect(() => {
     if (!hasHydrated) return;
+    
     if (currentAnalysis == null) {
-      console.log('[RaceInstrumentation] /report redirecting to /analyze (missing analysis post-hydration)', {
-        timestamp: performance.now(),
+      console.log('[Instrumentation] /report analysis null after hydration, attempting manual recovery', {
+        timestamp: new Date().toISOString(),
       });
+
+      try {
+        const stored = localStorage.getItem('laugh-lab-storage');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const persistedAnalysis = parsed.state?.currentAnalysis;
+          
+          if (persistedAnalysis) {
+            console.log('[Instrumentation] /report manual recovery successful', {
+              timestamp: new Date().toISOString(),
+              analysisId: persistedAnalysis.id,
+            });
+            // Manually update the store with the persisted data
+            useAnalysisStore.setState({ currentAnalysis: persistedAnalysis });
+            return;
+          }
+        }
+      } catch (e) {
+        console.error('[Instrumentation] /report manual recovery failed', e);
+      }
+
+      console.log('[Instrumentation] /report redirecting due to missing analysis after hydration and recovery attempt', {
+        timestamp: new Date().toISOString(),
+      });
+      
+      // Redirect immediately - no analysis exists
       router.replace('/analyze');
+    } else {
+      console.log('[Instrumentation] /report ready to render analysis', {
+        timestamp: new Date().toISOString(),
+        analysisId: currentAnalysis.id,
+      });
     }
   }, [currentAnalysis, hasHydrated, router]);
 
