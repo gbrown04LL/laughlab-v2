@@ -1,9 +1,8 @@
 {
-  "root": "client",
-  "buildCommand": "pnpm install && pnpm run build",
-  "outputDirectory": "dist",
+  "framework": null,
+  "buildCommand": "cd client && pnpm install && pnpm run build",
+  "outputDirectory": "client/dist",
   "cleanUrls": true,
-  "trailingSlash": false,
   "rewrites": [
     {
       "source": "/(.*)",
