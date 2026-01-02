@@ -12,6 +12,7 @@ import {
   Page4Gaps,
   Page5PunchUps,
   Page6Characters,
+  MentorFeedbackCard,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
 import { fetchAnalysisById } from '@/lib/supabase';
