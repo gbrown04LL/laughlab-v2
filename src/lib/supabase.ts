@@ -1,19 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { FullAnalysis } from '@/types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase credentials missing. Persistent storage will be disabled.');
-}
+// Lazy initialization to avoid errors during build/SSG
+let _supabase: SupabaseClient | null = null;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+function getSupabaseClient(): SupabaseClient | null {
+  if (_supabase) return _supabase;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+
+  _supabase = createClient(supabaseUrl, supabaseAnonKey);
+  return _supabase;
+}
 
 /**
  * Helper to save an analysis to Supabase
  */
 export async function saveAnalysisToSupabase(analysis: any, fingerprint?: string) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { success: false, error: 'Supabase not configured' };
+  }
+
   try {
     const { data, error } = await supabase
       .from('reports')
@@ -39,6 +52,11 @@ export async function saveAnalysisToSupabase(analysis: any, fingerprint?: string
  * Helper to fetch analysis history from Supabase
  */
 export async function fetchAnalysisHistory(fingerprint?: string) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return { success: false, error: 'Supabase not configured', data: [] };
+  }
+
   try {
     let query = supabase
       .from('reports')
@@ -65,6 +83,11 @@ export async function fetchAnalysisHistory(fingerprint?: string) {
 export async function fetchAnalysisById(
   id: string
 ): Promise<FullAnalysis | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('reports')
     .select('analysis_data')
