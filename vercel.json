@@ -1,7 +1,9 @@
 {
-  "framework": "vite",
-  "buildCommand": "pnpm build",
+  "root": "client",
+  "buildCommand": "pnpm install && pnpm run build",
   "outputDirectory": "dist",
+  "cleanUrls": true,
+  "trailingSlash": false,
   "rewrites": [
     {
       "source": "/(.*)",
