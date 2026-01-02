@@ -424,6 +424,7 @@ export const TIER_FEATURES: Record<UserTier, {
 export interface AnalysisState {
   // Current analysis
   currentAnalysis: FullAnalysis | null;
+  currentAnalysisId: string | null;
   hasHydrated: boolean;
   
   // UI state
