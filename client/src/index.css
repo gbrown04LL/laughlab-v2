@@ -1,9 +1,49 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* LaughLab custom colors */
+  --color-laugh-50: #fefce8;
+  --color-laugh-100: #fef9c3;
+  --color-laugh-200: #fef08a;
+  --color-laugh-300: #fde047;
+  --color-laugh-400: #facc15;
+  --color-laugh-500: #eab308;
+  --color-laugh-600: #ca8a04;
+  --color-laugh-700: #a16207;
+  --color-laugh-800: #854d0e;
+  --color-laugh-900: #713f12;
+
+  --color-stage-50: #faf5ff;
+  --color-stage-100: #f3e8ff;
+  --color-stage-200: #e9d5ff;
+  --color-stage-300: #d8b4fe;
+  --color-stage-400: #c084fc;
+  --color-stage-500: #a855f7;
+  --color-stage-600: #9333ea;
+  --color-stage-700: #7e22ce;
+  --color-stage-800: #6b21a8;
+  --color-stage-900: #581c87;
+
+  --color-ink-50: #f8fafc;
+  --color-ink-100: #f1f5f9;
+  --color-ink-200: #e2e8f0;
+  --color-ink-300: #cbd5e1;
+  --color-ink-400: #94a3b8;
+  --color-ink-500: #64748b;
+  --color-ink-600: #475569;
+  --color-ink-700: #334155;
+  --color-ink-800: #1e293b;
+  --color-ink-900: #0f172a;
+  --color-ink-950: #020617;
+
+  /* Custom fonts */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -174,4 +214,113 @@
       max-width: 1280px; /* Standard content width */
     }
   }
+
+  /* LaughLab Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3
+           bg-laugh-500 hover:bg-laugh-400
+           text-ink-950 font-semibold rounded-xl
+           transition-all duration-200
+           shadow-lg shadow-laugh-500/20 hover:shadow-laugh-400/30
+           hover:-translate-y-0.5 active:translate-y-0
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3
+           bg-ink-800 hover:bg-ink-700
+           text-ink-100 font-medium rounded-xl
+           border border-ink-700 hover:border-ink-600
+           transition-all duration-200;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2
+           text-ink-400 hover:text-ink-100 hover:bg-ink-800/50
+           font-medium rounded-lg transition-all duration-200;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-ink-900/50 backdrop-blur-sm
+           border border-ink-800 rounded-2xl
+           shadow-xl shadow-black/20;
+  }
+
+  .card-hover {
+    @apply bg-ink-900/50 backdrop-blur-sm
+           border border-ink-800 rounded-2xl
+           shadow-xl shadow-black/20
+           hover:border-ink-700 hover:bg-ink-900/70 transition-all duration-200;
+  }
+
+  /* Navigation */
+  .nav-link {
+    @apply text-ink-400 hover:text-ink-100 transition-colors text-sm font-medium;
+  }
+
+  .nav-link-active {
+    @apply text-laugh-400;
+  }
+
+  /* Badges */
+  .badge-laugh {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium
+           bg-laugh-500/20 text-laugh-400;
+  }
+}
+
+/* LaughLab base styles */
+html {
+  font-family: var(--font-body);
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #020617;
+  color: #f1f5f9;
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    radial-gradient(ellipse at top, rgba(234, 179, 8, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at bottom right, rgba(168, 85, 247, 0.03) 0%, transparent 50%);
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+/* Gradient text utility */
+.text-gradient {
+  background: linear-gradient(to right, #facc15, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Selection */
+::selection {
+  background: rgba(234, 179, 8, 0.3);
+  color: #f1f5f9;
 }
