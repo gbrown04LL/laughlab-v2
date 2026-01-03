@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Header,
@@ -15,51 +15,51 @@ import {
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
 
+const logReportEvent = (message: string, details?: unknown) => {
+  const timestamp = new Date().toISOString();
+  if (details !== undefined) {
+    console.log(`[REPORT][${timestamp}] ${message}`, details);
+  } else {
+    console.log(`[REPORT][${timestamp}] ${message}`);
+  }
+};
+
 export default function ReportPage() {
   const router = useRouter();
+  const hasLoggedFirstRead = useRef(false);
 
-  // Check hydration synchronously on mount (avoids spinner flash on SPA navigation)
-  const [hasHydrated, setHasHydrated] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return useAnalysisStore.persist?.hasHydrated?.() ?? false;
-  });
-
-  // Read directly from store - safe after hydration
+  // Read directly from store
   const currentAnalysis = useAnalysisStore((state) => state.currentAnalysis);
   const currentPage = useAnalysisStore((state) => state.currentPage);
   const canAccessPage = useAnalysisStore((state) => state.canAccessPage);
+  const hasHydrated = useAnalysisStore((state) => state.hasHydrated);
 
-  // Track hydration state with race condition protection
   useEffect(() => {
-    // Already hydrated from sync check
-    if (hasHydrated) return;
-
-    const persist = useAnalysisStore.persist;
-    if (!persist) {
-      setHasHydrated(true);
-      return;
-    }
-
-    // Subscribe to hydration event first
-    const unsubscribe = persist.onFinishHydration?.(() => {
-      setHasHydrated(true);
+    if (hasLoggedFirstRead.current) return;
+    logReportEvent('mount - first store read', {
+      hasHydrated,
+      hasAnalysis: currentAnalysis != null,
+      currentPage,
     });
+    hasLoggedFirstRead.current = true;
+  }, [currentAnalysis, currentPage, hasHydrated]);
 
-    // Then check if already hydrated (handles race condition where
-    // hydration finished between initial check and subscription)
-    if (persist.hasHydrated?.()) {
-      setHasHydrated(true);
-    }
-
-    return () => {
-      unsubscribe?.();
-    };
-  }, [hasHydrated]);
+  useEffect(() => {
+    logReportEvent('state update', {
+      hasHydrated,
+      hasAnalysis: currentAnalysis != null,
+      currentPage,
+    });
+  }, [currentAnalysis, currentPage, hasHydrated]);
 
   // Redirect if no analysis after hydration completes
   useEffect(() => {
-    if (!hasHydrated) return;
+    if (!hasHydrated) {
+      logReportEvent('hydration not ready, skipping redirect check');
+      return;
+    }
     if (currentAnalysis == null) {
+      logReportEvent('redirecting to /analyze (no analysis after hydration)');
       router.replace('/analyze');
     }
   }, [currentAnalysis, hasHydrated, router]);
@@ -68,7 +68,10 @@ export default function ReportPage() {
   if (!hasHydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="spinner" />
+        <div className="text-center space-y-3">
+          <div className="spinner mx-auto" />
+          <p className="text-ink-200 font-medium">Loading your report...</p>
+        </div>
       </div>
     );
   }

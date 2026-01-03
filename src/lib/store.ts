@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import type { StateStorage } from 'zustand/middleware';
 import type { AnalysisState, FullAnalysis, UserTier, AnalysisHistoryItem, TIER_FEATURES } from '@/types';
 
 // Tier feature access
@@ -16,6 +17,42 @@ function getCurrentMonthKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+const logWithTimestamp = (scope: string, message: string, details?: unknown) => {
+  const timestamp = new Date().toISOString();
+  if (details !== undefined) {
+    console.log(`[${scope}][${timestamp}] ${message}`, details);
+  } else {
+    console.log(`[${scope}][${timestamp}] ${message}`);
+  }
+};
+
+const getInstrumentedStorage = (): StateStorage => ({
+  getItem: (name) => {
+    logWithTimestamp('PERSIST', 'storage.getItem start', { name });
+    if (typeof window === 'undefined') {
+      logWithTimestamp('PERSIST', 'storage.getItem skipped (window undefined)', { name });
+      return null;
+    }
+    const value = window.localStorage.getItem(name);
+    logWithTimestamp('PERSIST', 'storage.getItem end', { name, hasValue: value != null });
+    return value;
+  },
+  setItem: (name, value) => {
+    logWithTimestamp('PERSIST', 'storage.setItem start', { name, bytes: value?.length });
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(name, value);
+    }
+    logWithTimestamp('PERSIST', 'storage.setItem end', { name });
+  },
+  removeItem: (name) => {
+    logWithTimestamp('PERSIST', 'storage.removeItem start', { name });
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(name);
+    }
+    logWithTimestamp('PERSIST', 'storage.removeItem end', { name });
+  },
+});
+
 export const useAnalysisStore = create<AnalysisState>()(
   persist(
     (set, get) => ({
@@ -28,9 +65,11 @@ export const useAnalysisStore = create<AnalysisState>()(
       analysesThisMonth: 0,
       usageMonthKey: getCurrentMonthKey(), // Track which month the count is for
       history: [],
+      hasHydrated: false,
 
       // Actions
       setAnalysis: (analysis: FullAnalysis) => {
+        logWithTimestamp('STORE', 'setAnalysis invoked', { id: analysis.id });
         const state = get();
         const currentMonth = getCurrentMonthKey();
         
@@ -110,6 +149,7 @@ export const useAnalysisStore = create<AnalysisState>()(
     }),
     {
       name: 'laugh-lab-storage',
+      storage: createJSONStorage(() => getInstrumentedStorage()),
       partialize: (state) => ({
         currentAnalysis: state.currentAnalysis,
         history: state.history,
@@ -117,6 +157,17 @@ export const useAnalysisStore = create<AnalysisState>()(
         analysesThisMonth: state.analysesThisMonth,
         usageMonthKey: state.usageMonthKey,
       }),
+      onRehydrateStorage: () => {
+        logWithTimestamp('PERSIST', 'onRehydrateStorage start');
+        return (_state, error) => {
+          if (error) {
+            logWithTimestamp('PERSIST', 'onRehydrateStorage error', { error: error.message });
+          } else {
+            logWithTimestamp('PERSIST', 'onRehydrateStorage complete');
+          }
+          set({ hasHydrated: true });
+        };
+      },
     }
   )
 );

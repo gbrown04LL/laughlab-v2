@@ -437,6 +437,7 @@ export interface AnalysisState {
   
   // History
   history: AnalysisHistoryItem[];
+  hasHydrated: boolean;
   
   // Actions
   setAnalysis: (analysis: FullAnalysis) => void;
