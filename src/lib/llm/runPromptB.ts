@@ -1,11 +1,11 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { anthropic } from '@/lib/llm/client';
 import { PROMPT_B_SYSTEM } from '@/lib/llm/promptB';
 import { validatePromptB } from '@/lib/llm/validatePromptB';
 import type { NormalizedAnalysis } from '@/lib/llm/validatePromptA';
+import { callChatGPTWithRetry, createChatCompletion, type ChatMessage } from '@/lib/llm/chatgptRequest';
 
 interface RunPromptBParams {
   analysis: NormalizedAnalysis;
+  requestId?: string;
 }
 
 function buildUserMessage(analysis: NormalizedAnalysis): string {
@@ -45,28 +45,33 @@ function fallbackFeedback(analysis: NormalizedAnalysis): string {
 
 export async function runPromptB({
   analysis,
+  requestId = 'unknown',
 }: RunPromptBParams): Promise<string> {
-  const baseMessage: Anthropic.MessageParam = {
-    role: 'user',
-    content: [{ type: 'text', text: buildUserMessage(analysis) }],
-  };
+  const messages: ChatMessage[] = [
+    { role: 'system', content: PROMPT_B_SYSTEM },
+    { role: 'user', content: buildUserMessage(analysis) },
+  ];
 
-  const messages: Anthropic.MessageParam[] = [baseMessage];
   let attempts = 0;
   let lastError = '';
 
   while (attempts < 2) {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      temperature: 0.3,
-      system: PROMPT_B_SYSTEM,
-      messages,
-    });
+    const response = await callChatGPTWithRetry(
+      { requestId, promptLabel: 'B' },
+      (signal) =>
+        createChatCompletion(
+          {
+            messages,
+            temperature: 0.3,
+            max_tokens: 1024,
+          },
+          signal
+        )
+    );
 
-    const textBlock = response.content.find((block) => block.type === 'text');
-    if (textBlock && textBlock.type === 'text') {
-      const validation = validatePromptB(textBlock.text);
+    const content = response.choices[0]?.message?.content;
+    if (content) {
+      const validation = validatePromptB(content);
       if (validation.ok) {
         return validation.value;
       }
@@ -76,15 +81,13 @@ export async function runPromptB({
     }
 
     attempts += 1;
-    messages.push({ role: 'assistant', content: response.content });
+    messages.push({
+      role: 'assistant',
+      content: response.choices[0]?.message?.content ?? '',
+    });
     messages.push({
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: 'Fix formatting: exactly 3 paragraphs and end with the required line.',
-        },
-      ],
+      content: 'Fix formatting: exactly 3 paragraphs and end with the required line.',
     });
   }
 

@@ -1,6 +1,10 @@
-import type { Tool } from '@anthropic-ai/sdk/resources/messages';
+export interface PromptATool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
 
-export const PROMPT_A_TOOL: Tool = {
+export const PROMPT_A_TOOL: PromptATool = {
   name: 'analyze_script',
   description: 'Deterministic Laugh Lab scoring engine. Return structured analysis JSON ONLY via tool_use. No prose.',
   input_schema: {

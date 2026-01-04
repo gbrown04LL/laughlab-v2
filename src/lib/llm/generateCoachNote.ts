@@ -1,5 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
+import { callChatGPTWithRetry, createChatCompletion, type ChatMessage, type ChatToolFunction } from '@/lib/llm/chatgptRequest';
 
 // Schema for the coach note tool
 const CoachNoteSchema = z.object({
@@ -95,58 +95,74 @@ FINAL CHECK BEFORE RESPONDING
 • **Must provide a specific punch-up example in Paragraph 3.**`;
 
 export async function generateCoachNote(params: {
-  anthropic: Anthropic;
   analysisJson: unknown;
   scriptMeta?: Record<string, unknown>;
+  requestId?: string;
 }): Promise<string> {
-  const { anthropic, analysisJson, scriptMeta } = params;
+  const { analysisJson, scriptMeta, requestId = 'unknown' } = params;
 
   // Minimal deterministic fallback if everything fails
   const hardFallback =
     "Your script has some great moments! Pick one spot where the energy dips and add a clean, character-driven button that echoes your strongest earlier joke. Ready to analyze some punchline gaps?";
 
   try {
-    const msg = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1024,
-      temperature: 0,
-      system: REFINED_PROMPT_TEXT,
-      messages: [
-        {
-          role: "user",
-          content: JSON.stringify(
-            { analysis: analysisJson, meta: scriptMeta ?? {} },
-            null,
-            2
-          ),
-        },
-      ],
-      tools: [
-        {
-          name: "create_coach_note",
-          description: "Generate a short, actionable coach note for the writer. Must be a single non-empty string.",
-          input_schema: {
-            type: "object",
+    const messages: ChatMessage[] = [
+      { role: 'system', content: REFINED_PROMPT_TEXT },
+      {
+        role: 'user',
+        content: JSON.stringify({ analysis: analysisJson, meta: scriptMeta ?? {} }, null, 2),
+      },
+    ];
+
+    const tools: ChatToolFunction[] = [
+      {
+        type: 'function',
+        function: {
+          name: 'create_coach_note',
+          description: 'Generate a short, actionable coach note for the writer. Must be a single non-empty string.',
+          parameters: {
+            type: 'object',
             properties: {
               coachNote: {
-                type: "string",
-                description: "A short (1–3 sentences) actionable coaching note. No JSON, no bullets, no extra keys.",
+                type: 'string',
+                description: 'A short (1–3 sentences) actionable coaching note. No JSON, no bullets, no extra keys.',
               },
             },
-            required: ["coachNote"],
+            required: ['coachNote'],
           },
         },
-      ],
-      tool_choice: { type: "tool", name: "create_coach_note" },
-    });
+      },
+    ];
 
-    const toolUse = msg.content.find((block) => block.type === "tool_use");
-    
-    if (!toolUse || toolUse.type !== "tool_use") {
+    const msg = await callChatGPTWithRetry(
+      { requestId, promptLabel: 'coach' },
+      (signal) =>
+        createChatCompletion(
+          {
+            messages,
+            tools,
+            tool_choice: { type: 'function', function: { name: 'create_coach_note' } },
+            temperature: 0,
+            max_tokens: 1024,
+          },
+          signal
+        )
+    );
+
+    const toolUse = msg.choices[0]?.message?.tool_calls?.[0];
+    if (!toolUse) {
       return hardFallback;
     }
 
-    const parsed = CoachNoteSchema.safeParse(toolUse.input);
+    const parsedArgs = (() => {
+      try {
+        return JSON.parse(toolUse.function.arguments);
+      } catch {
+        return null;
+      }
+    })();
+
+    const parsed = CoachNoteSchema.safeParse(parsedArgs);
     
     if (!parsed.success) {
       console.warn("[CoachNote] Validation failed", parsed.error);
