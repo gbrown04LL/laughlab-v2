@@ -1,11 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import type { ScriptFormat } from '@/types';
-import { openai, getLLMModelName } from '@/lib/llm/client';
+import { getLLMModelName } from '@/lib/llm/client';
 import { PROMPT_A_SYSTEM } from '@/lib/llm/promptA';
 import { PROMPT_A_TOOL } from '@/lib/llm/tools/promptA.tool';
 import { translatePromptAToFullAnalysis, type PromptARaw } from '@/lib/llm/translatePromptAToFullAnalysis';
 import { validateAndSanitizeAnalysis } from '@/lib/validation';
 import type { ValidatedAnalysisResponse } from '@/lib/validation';
-import type OpenAI from 'openai';
+import { callChatGPTWithRetry, createChatCompletion, type ChatMessage, type ChatToolFunction } from '@/lib/llm/chatgptRequest';
 
 interface RunPromptAParams {
   script: string;
@@ -18,7 +19,8 @@ export async function runPromptA({
   format,
   title,
 }: RunPromptAParams): Promise<ValidatedAnalysisResponse> {
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+  const requestId = `promptA-${randomUUID()}`;
+  const messages: ChatMessage[] = [
     {
       role: 'system',
       content: PROMPT_A_SYSTEM,
@@ -29,7 +31,7 @@ export async function runPromptA({
     },
   ];
 
-  const tools: OpenAI.Chat.ChatCompletionTool[] = [
+  const tools: ChatToolFunction[] = [
     {
       type: 'function',
       function: {
@@ -44,13 +46,20 @@ export async function runPromptA({
   let lastError = '';
 
   while (attempts < 2) {
-    const response = await openai.chat.completions.create({
-      model: getLLMModelName(),
-      messages,
-      tools,
-      tool_choice: { type: 'function', function: { name: 'analyze_script' } },
-      temperature: 0,
-    });
+    const response = await callChatGPTWithRetry(
+      { requestId, promptLabel: 'A' },
+      (signal) =>
+        createChatCompletion(
+          {
+            model: getLLMModelName(),
+            messages,
+            tools,
+            tool_choice: { type: 'function', function: { name: 'analyze_script' } },
+            temperature: 0,
+          },
+          signal
+        )
+    );
 
     const toolCall = response.choices[0]?.message?.tool_calls?.[0];
     if (!toolCall || toolCall.type !== 'function') {
