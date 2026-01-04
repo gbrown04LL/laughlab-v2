@@ -14,6 +14,12 @@ import type {
   TimelineMoment,
 } from '@/types';
 import { estimateRuntime } from '@/lib/utils';
+import {
+  coerceCallbackAnalysis,
+  coerceCharacterBalance,
+  coerceCharacterProfile,
+  DEFAULT_CALLBACK,
+} from '@/lib/analysisNormalization';
 
 const FORMAT_BENCHMARKS: Record<ScriptFormat, { targetLPM: number; targetLPJ: number; defaultPercentile: number }> = {
   sitcom: { targetLPM: 2.4, targetLPJ: 5.5, defaultPercentile: 55 },
@@ -581,37 +587,72 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
 
 function mapCharacters(raw: any, score: number): { characters: CharacterProfile[]; balance: CharacterBalance } {
   const jokesPerCharacter = raw?.jokesPerCharacter ?? {};
-  const characters: CharacterProfile[] = Object.entries(jokesPerCharacter).map(([name, jokes]) => ({
-    name,
-    jokeCount: jokes as number,
-    lines: 0,
-    sentiment: 'neutral',
-    traits: [],
-  }));
+  const initialProfiles = Object.entries(jokesPerCharacter).map(([name, jokes]) =>
+    coerceCharacterProfile({
+      name,
+      jokeCount: typeof jokes === 'number' && Number.isFinite(jokes) ? jokes : 0,
+    })
+  );
 
-  return {
-    characters,
-    balance: {
-      score,
-      status: score >= 70 ? 'balanced' : 'unbalanced',
-      analysis: 'Character distribution analysis based on joke frequency.',
-    },
-  };
+  const totalJokes = initialProfiles.reduce((sum, profile) => sum + profile.jokeCount, 0);
+  const characters = initialProfiles.map((profile) =>
+    coerceCharacterProfile({
+      ...profile,
+      jokePercentage: totalJokes > 0 ? Number(((profile.jokeCount / totalJokes) * 100).toFixed(1)) : 0,
+    })
+  );
+
+  const dominant = characters.reduce<CharacterProfile | null>(
+    (current, profile) => (current && current.jokeCount >= profile.jokeCount ? current : profile),
+    null
+  );
+
+  const underutilized = totalJokes > 0
+    ? characters.filter((profile) => profile.jokeCount / totalJokes < 0.1).map((profile) => profile.name)
+    : [];
+
+  const normalizedScore = clamp(score, 0, 100);
+  const status: CharacterBalance['status'] =
+    normalizedScore >= 70 ? 'balanced' : normalizedScore >= 40 ? 'slightly-unbalanced' : 'unbalanced';
+
+  const balance = coerceCharacterBalance({
+    score: normalizedScore,
+    status,
+    dominantCharacter: dominant?.name ?? null,
+    underutilized,
+  });
+
+  return { characters, balance };
 }
 
 function mapCallbacks(raw: any): CallbackAnalysis {
-  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any, i: number) => ({
-    id: `cb_${i}`,
-    setupLine: c.setupLine,
-    callbackLine: c.callbackLine,
-    description: c.description,
-    impact: 'high',
-  }));
+  const details: Callback[] = Array.isArray(raw?.callbacksDetail)
+    ? raw.callbacksDetail.map((callback: any) => ({
+        ...DEFAULT_CALLBACK,
+        setupLine: typeof callback?.setupLine === 'number' ? callback.setupLine : 0,
+        payoffLine: typeof callback?.callbackLine === 'number' ? callback.callbackLine : 0,
+        payoffQuote: typeof callback?.description === 'string' ? callback.description : '',
+        setupQuote: typeof callback?.description === 'string' ? callback.description : '',
+        effectiveness: 'medium',
+      }))
+    : [];
 
-  return {
-    total: raw?.totalCallbacks ?? 0,
-    frequency: raw?.callbackFrequency ?? 0,
-    missedOpportunities: raw?.missedCallbacks ?? 0,
-    callbacks: details,
-  };
+  const missedOpportunities = Array.isArray(raw?.missedCallbacks)
+    ? raw.missedCallbacks.map((missed: any) => ({
+        setupLine: typeof missed?.setupLine === 'number' ? missed.setupLine : 0,
+        setupQuote: typeof missed?.setupQuote === 'string' ? missed.setupQuote : '',
+        suggestedPayoffLocation: typeof missed?.suggestedPayoffLocation === 'string' ? missed.suggestedPayoffLocation : '',
+        suggestedPayoff: typeof missed?.suggestedPayoff === 'string' ? missed.suggestedPayoff : '',
+        potentialImpact: 'medium',
+      }))
+    : [];
+
+  const score = typeof raw?.callbackScore === 'number' ? raw.callbackScore : raw?.callbackFrequency ?? 0;
+
+  return coerceCallbackAnalysis({
+    existingCallbacks: details,
+    missedOpportunities,
+    callbackScore: clamp(score, 0, 100),
+    recommendations: Array.isArray(raw?.recommendations) ? raw.recommendations : [],
+  });
 }
