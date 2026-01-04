@@ -196,7 +196,7 @@ export const useAnalysisStore = create<AnalysisState>()(
             timestamp: end,
             hasAnalysis: !!state?.currentAnalysis,
           });
-          useAnalysisStore.setState({ hasHydrated: true });
+          if (state) state.hasHydrated = true;
         };
       },
     }

@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { anthropic, getAnthropicModelName } from '@/lib/llm/client';
+import { openai, getLLMModelName } from '@/lib/llm/client';
 import { PROMPT_B_SYSTEM } from '@/lib/llm/promptB';
 import { validatePromptB } from '@/lib/llm/validatePromptB';
 import type { NormalizedAnalysis } from '@/lib/llm/validatePromptA';
+import type OpenAI from 'openai';
 
 interface RunPromptBParams {
   analysis: NormalizedAnalysis;
@@ -23,7 +23,8 @@ function buildUserMessage(analysis: NormalizedAnalysis): string {
 export async function runPromptB({
   analysis,
 }: RunPromptBParams): Promise<string> {
-  const messages: Anthropic.MessageParam[] = [
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: 'system', content: PROMPT_B_SYSTEM },
     { role: 'user', content: buildUserMessage(analysis) },
   ];
 
@@ -31,17 +32,16 @@ export async function runPromptB({
   let lastError = '';
 
   while (attempts < 2) {
-    const response = await anthropic.messages.create({
-      model: getAnthropicModelName(),
+    const response = await openai.chat.completions.create({
+      model: getLLMModelName(),
+      messages,
       max_tokens: 1024,
       temperature: 0.3,
-      system: PROMPT_B_SYSTEM,
-      messages,
     });
 
-    const content = response.content.find((block) => block.type === 'text');
-    if (content && content.type === 'text') {
-      const validation = validatePromptB(content.text);
+    const content = response.choices[0]?.message?.content;
+    if (content) {
+      const validation = validatePromptB(content);
       if (validation.ok) {
         return validation.value;
       }
@@ -51,7 +51,10 @@ export async function runPromptB({
     }
 
     attempts += 1;
-    messages.push({ role: 'assistant', content: response.content });
+    const assistantMessage = response.choices[0]?.message;
+    if (assistantMessage) {
+      messages.push(assistantMessage);
+    }
     messages.push({
       role: 'user',
       content: 'Fix formatting: exactly 3 paragraphs and end with the required line.',
