@@ -12,6 +12,7 @@ interface RunPromptAParams {
   script: string;
   format: ScriptFormat;
   title: string;
+  requestId?: string;
 }
 
 export async function runPromptA({
