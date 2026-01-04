@@ -44,6 +44,8 @@ export async function saveAnalysisToSupabase(analysis: any, fingerprint?: string
         title: analysis.title,
         format: analysis.format,
         overall_score: analysis.metrics.overallScore,
+        prompt_a_model: analysis?.telemetry?.promptAModel ?? null,
+        prompt_a_latency_ms: analysis?.telemetry?.promptALatencyMs ?? null,
         analysis_data: analysis,
         fingerprint: fingerprint || null,
       })

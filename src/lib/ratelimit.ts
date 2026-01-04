@@ -1,22 +1,21 @@
 // ===========================================
 // LAUGH LAB PRO - RATE LIMITING & USAGE TRACKING
 // ===========================================
-// Simple in-memory rate limiter + usage tracking with calendar month reset
+// Persistent Supabase-backed rate limiter + usage tracking with calendar month reset
 
 import type { UserTier } from '@/types';
 import { getServerSupabaseClient } from '@/lib/serverSupabaseClient';
 
+export class RateLimitStoreError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RateLimitStoreError';
+  }
+}
+
 // ===========================================
 // RATE LIMITING (IP-based)
 // ===========================================
-
-interface RateLimitEntry {
-  count: number;
-  resetTime: number;
-}
-
-// In-memory store (resets on cold start, but provides basic protection)
-const rateLimitStore = new Map<string, RateLimitEntry>();
 
 // Rate limit configuration
 const RATE_LIMIT_CONFIG = {
@@ -24,9 +23,6 @@ const RATE_LIMIT_CONFIG = {
   maxRequests: 5, // Max 5 requests per minute per IP
   maxRequestsPerDay: 20, // Max 20 requests per day per IP (free tier protection)
 };
-
-// Daily tracking
-const dailyStore = new Map<string, { count: number; resetDate: string }>();
 
 function getTodayString(): string {
   return new Date().toISOString().split('T')[0];
@@ -47,14 +43,21 @@ function getWindowStart(windowMs: number): Date {
   return date;
 }
 
+function getSupabaseOrThrow() {
+  const supabase = getServerSupabaseClient();
+  if (!supabase) {
+    throw new RateLimitStoreError('Persistent usage store is not configured (missing Supabase credentials).');
+  }
+  return supabase;
+}
+
 async function incrementPersistentCounter(
   key: string,
   windowType: 'minute' | 'day' | 'month',
   windowStart: Date,
   amount: number = 1
-): Promise<number | null> {
-  const supabase = getServerSupabaseClient();
-  if (!supabase) return null;
+): Promise<number> {
+  const supabase = getSupabaseOrThrow();
 
   try {
     const { data, error } = await supabase.rpc('increment_usage_counter', {
@@ -65,11 +68,14 @@ async function incrementPersistentCounter(
     });
 
     if (error) throw error;
-    if (typeof data === 'number') return data;
-    return null;
+    if (typeof data !== 'number') {
+      throw new RateLimitStoreError('Supabase increment_usage_counter returned a non-numeric payload');
+    }
+    return data;
   } catch (error) {
-    console.warn('[RateLimit] Supabase increment failed, falling back to memory', error);
-    return null;
+    if (error instanceof RateLimitStoreError) throw error;
+    const message = error instanceof Error ? error.message : 'Unknown Supabase error';
+    throw new RateLimitStoreError(`Failed to increment usage counter: ${message}`);
   }
 }
 
@@ -77,9 +83,8 @@ async function getPersistentCounter(
   key: string,
   windowType: 'minute' | 'day' | 'month',
   windowStart: Date
-): Promise<number | null> {
-  const supabase = getServerSupabaseClient();
-  if (!supabase) return null;
+): Promise<number> {
+  const supabase = getSupabaseOrThrow();
 
   try {
     const { data, error } = await supabase
@@ -93,8 +98,8 @@ async function getPersistentCounter(
     if (error) throw error;
     return data?.count ?? 0;
   } catch (error) {
-    console.warn('[RateLimit] Supabase read failed, falling back to memory', error);
-    return null;
+    const message = error instanceof Error ? error.message : 'Unknown Supabase error';
+    throw new RateLimitStoreError(`Failed to read usage counters: ${message}`);
   }
 }
 
@@ -103,121 +108,39 @@ export async function checkRateLimit(ip: string): Promise<{ allowed: boolean; re
   const today = getTodayString();
   const key = normalizeIdentifier(ip);
 
-  // Try persistent counters first
   const minuteStart = getWindowStart(RATE_LIMIT_CONFIG.windowMs);
   const dayStart = new Date(`${today}T00:00:00.000Z`);
 
   const minuteCount = await incrementPersistentCounter(key, 'minute', minuteStart);
   const dayCount = await incrementPersistentCounter(key, 'day', dayStart);
 
-  if (minuteCount !== null && dayCount !== null) {
-    if (minuteCount > RATE_LIMIT_CONFIG.maxRequests) {
-      const retryAfter = Math.ceil((minuteStart.getTime() + RATE_LIMIT_CONFIG.windowMs - now) / 1000);
-      return {
-        allowed: false,
-        retryAfter,
-        reason: `Too many requests. Please wait ${retryAfter} seconds.`,
-      };
-    }
+  if (minuteCount > RATE_LIMIT_CONFIG.maxRequests) {
+    const retryAfter = Math.ceil((minuteStart.getTime() + RATE_LIMIT_CONFIG.windowMs - now) / 1000);
+    return {
+      allowed: false,
+      retryAfter,
+      reason: `Too many requests. Please wait ${retryAfter} seconds.`,
+    };
+  }
 
-    if (dayCount > RATE_LIMIT_CONFIG.maxRequestsPerDay) {
-      return {
-        allowed: false,
-        reason: 'Daily limit reached. Please try again tomorrow or upgrade your plan.',
-      };
-    }
+  if (dayCount > RATE_LIMIT_CONFIG.maxRequestsPerDay) {
+    return {
+      allowed: false,
+      reason: 'Daily limit reached. Please try again tomorrow or upgrade your plan.',
+    };
+  }
 
-    return { allowed: true };
-  }
-  
-  // Check per-minute rate limit
-  const entry = rateLimitStore.get(key);
-  
-  if (entry) {
-    if (now < entry.resetTime) {
-      if (entry.count >= RATE_LIMIT_CONFIG.maxRequests) {
-        const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
-        return { 
-          allowed: false, 
-          retryAfter, 
-          reason: `Too many requests. Please wait ${retryAfter} seconds.` 
-        };
-      }
-      entry.count++;
-    } else {
-      // Window expired, reset
-      entry.count = 1;
-      entry.resetTime = now + RATE_LIMIT_CONFIG.windowMs;
-    }
-  } else {
-    rateLimitStore.set(key, {
-      count: 1,
-      resetTime: now + RATE_LIMIT_CONFIG.windowMs,
-    });
-  }
-  
-  // Check daily limit
-  const dailyEntry = dailyStore.get(key);
-  
-  if (dailyEntry) {
-    if (dailyEntry.resetDate === today) {
-      if (dailyEntry.count >= RATE_LIMIT_CONFIG.maxRequestsPerDay) {
-        return { 
-          allowed: false, 
-          reason: 'Daily limit reached. Please try again tomorrow or upgrade your plan.' 
-        };
-      }
-      dailyEntry.count++;
-    } else {
-      // New day, reset
-      dailyEntry.count = 1;
-      dailyEntry.resetDate = today;
-    }
-  } else {
-    dailyStore.set(key, { count: 1, resetDate: today });
-  }
-  
   return { allowed: true };
 }
 
 // Cleanup old entries periodically (called on each request)
 export function cleanupRateLimitStore(): void {
-  const now = Date.now();
-  const today = getTodayString();
-  
-  // Clean minute-based entries
-  const rateLimitKeys = Array.from(rateLimitStore.keys());
-  for (const ip of rateLimitKeys) {
-    const entry = rateLimitStore.get(ip);
-    if (entry && now > entry.resetTime + 60000) { // Keep for 1 extra minute
-      rateLimitStore.delete(ip);
-    }
-  }
-  
-  // Clean daily entries
-  const dailyKeys = Array.from(dailyStore.keys());
-  for (const ip of dailyKeys) {
-    const entry = dailyStore.get(ip);
-    if (entry && entry.resetDate !== today) {
-      dailyStore.delete(ip);
-    }
-  }
+  // No-op; persistence handled by Supabase.
 }
 
 // ===========================================
 // USAGE TRACKING (with calendar month reset)
 // ===========================================
-
-interface UsageEntry {
-  count: number;
-  monthKey: string; // "2025-01"
-  tier: UserTier;
-}
-
-// In-memory usage store (keyed by fingerprint/IP for anonymous users)
-const usageStore = new Map<string, UsageEntry>();
-
-const fallbackUsageStore = usageStore;
 
 function getCurrentMonthKey(): string {
   const now = new Date();
@@ -246,53 +169,17 @@ export async function checkUsageLimit(
   const monthStart = getMonthStartDate(monthKey);
 
   const persistentCount = await getPersistentCounter(key, 'month', monthStart);
-  if (persistentCount !== null) {
-    const remaining = Math.max(0, limit - persistentCount);
-    if (persistentCount >= limit) {
-      return {
-        allowed: false,
-        remaining: 0,
-        limit,
-        reason: `You've used all ${limit} free analyses this month. Upgrade to continue.`,
-      };
-    }
+  const remaining = Math.max(0, limit - persistentCount);
+  if (persistentCount >= limit) {
+    return {
+      allowed: false,
+      remaining: 0,
+      limit,
+      reason: `You've used all ${limit} free analyses this month. Upgrade to continue.`,
+    };
+  }
 
-    return { allowed: true, remaining, limit };
-  }
-  
-  const entry = fallbackUsageStore.get(key);
-  
-  if (entry) {
-    // Check if we're in a new month
-    if (entry.monthKey !== monthKey) {
-      // Reset for new month
-      entry.count = 0;
-      entry.monthKey = monthKey;
-      entry.tier = tier;
-    }
-    
-    const remaining = Math.max(0, limit - entry.count);
-    
-    if (entry.count >= limit) {
-      return {
-        allowed: false,
-        remaining: 0,
-        limit,
-        reason: `You've used all ${limit} free analyses this month. Upgrade to continue.`,
-      };
-    }
-    
-    return { allowed: true, remaining, limit };
-  }
-  
-  // New user
-  fallbackUsageStore.set(key, {
-    count: 0,
-    monthKey,
-    tier,
-  });
-  
-  return { allowed: true, remaining: limit, limit };
+  return { allowed: true, remaining, limit };
 }
 
 export async function incrementUsage(identifier: string): Promise<void> {
@@ -300,36 +187,15 @@ export async function incrementUsage(identifier: string): Promise<void> {
   const monthKey = getCurrentMonthKey();
   const monthStart = getMonthStartDate(monthKey);
 
-  const incremented = await incrementPersistentCounter(key, 'month', monthStart, 1);
-  if (incremented !== null) {
-    return;
-  }
-
-  const entry = fallbackUsageStore.get(key);
-  if (entry) {
-    entry.count++;
-    return;
-  }
-
-  fallbackUsageStore.set(key, {
-    count: 1,
-    monthKey,
-    tier: 'free',
-  });
+  await incrementPersistentCounter(key, 'month', monthStart, 1);
 }
 
-export function getUsageStats(identifier: string): { count: number; monthKey: string } | null {
-  const entry = usageStore.get(normalizeIdentifier(identifier));
-  if (!entry) return null;
-  
-  // Check for month rollover
-  const currentMonth = getCurrentMonthKey();
-  if (entry.monthKey !== currentMonth) {
-    entry.count = 0;
-    entry.monthKey = currentMonth;
-  }
-  
-  return { count: entry.count, monthKey: entry.monthKey };
+export async function getUsageStats(identifier: string): Promise<{ count: number; monthKey: string }> {
+  const key = normalizeIdentifier(identifier);
+  const monthKey = getCurrentMonthKey();
+  const monthStart = getMonthStartDate(monthKey);
+  const count = await getPersistentCounter(key, 'month', monthStart);
+  return { count, monthKey };
 }
 
 // ===========================================

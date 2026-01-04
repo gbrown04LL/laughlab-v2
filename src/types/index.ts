@@ -27,6 +27,11 @@ export interface AnalyzeResponse {
   error?: string;
 }
 
+export interface PromptTelemetry {
+  promptAModel?: string;
+  promptALatencyMs?: number;
+}
+
 // ===========================================
 // FULL ANALYSIS RESULT
 // ===========================================
@@ -37,6 +42,7 @@ export interface FullAnalysis {
   timestamp: string;
   title: string;
   format: ScriptFormat;
+  telemetry?: PromptTelemetry;
   
   // Script stats
   scriptStats: ScriptStats;

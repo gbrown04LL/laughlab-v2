@@ -136,6 +136,73 @@ function getGapSeverity(durationMinutes: number, length: number): Gap['severity'
   return 'minor';
 }
 
+export interface GapPriorityScore {
+  startLine: number;
+  endLine: number;
+  priority: number;
+  score: number;
+}
+
+export function calculateGapPriorityScores(params: {
+  gaps: PromptARaw['gapAnalysis']['gaps'];
+  totalLines: number;
+  runtimeMinutes: number;
+  jokesByLine?: PromptARaw['jokeAnalysis']['jokesByLine'];
+  laughsPerMinute?: number;
+}): GapPriorityScore[] {
+  const { gaps, totalLines, runtimeMinutes, jokesByLine = [], laughsPerMinute = 0 } = params;
+  if (!Array.isArray(gaps) || gaps.length === 0 || totalLines <= 0) return [];
+
+  const linesPerMinute = runtimeMinutes > 0 ? Math.max(totalLines / runtimeMinutes, 1) : 15;
+  const estimatedJokesFromRate = Math.max(Math.round((laughsPerMinute ?? 0) * runtimeMinutes), 0);
+  const baselineJokes = jokesByLine.length || estimatedJokesFromRate;
+  const baselineDensity = totalLines > 0 ? baselineJokes / totalLines : 0;
+
+  const scored = gaps.map((gap) => {
+    const startLine = gap?.startLine ?? 0;
+    const endLine = gap?.endLine ?? startLine;
+    const length = Math.max(gap?.length ?? endLine - startLine, 0);
+    const durationMinutes =
+      typeof gap?.durationMin === 'number' && gap.durationMin > 0
+        ? gap.durationMin
+        : linesPerMinute > 0
+          ? Number((length / linesPerMinute).toFixed(1))
+          : 0;
+
+    const severity = getGapSeverity(durationMinutes, length);
+    const severityWeight = severity === 'critical' ? 1 : severity === 'moderate' ? 0.6 : 0.3;
+
+    const positionRatio = totalLines > 0 ? startLine / totalLines : 0;
+    const positionWeight = positionRatio >= 0.6 ? 0.4 : positionRatio >= 0.4 ? 0.2 : 0;
+
+    const windowStart = Math.max(1, startLine - 10);
+    const windowEnd = Math.min(totalLines, endLine + 10);
+    const jokesInWindow = jokesByLine.filter((joke) => joke.line >= windowStart && joke.line <= windowEnd).length;
+    const windowLength = Math.max(windowEnd - windowStart + 1, 1);
+    const windowDensity = jokesInWindow / windowLength;
+    const densityPenalty =
+      baselineDensity > 0 && windowDensity < baselineDensity * 0.5
+        ? 0.6
+        : baselineDensity > 0 && windowDensity < baselineDensity * 0.8
+          ? 0.3
+          : 0;
+
+    const durationScore = Math.min(durationMinutes / 4, 1);
+    const score = Number((durationScore + severityWeight + positionWeight + densityPenalty).toFixed(3));
+
+    return { startLine, endLine, priority: 0, score };
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score || a.startLine - b.startLine)
+    .map((entry, index) => ({
+      startLine: entry.startLine,
+      endLine: entry.endLine,
+      priority: index + 1,
+      score: entry.score,
+    }));
+}
+
 function gapSuggestion(severity: Gap['severity']): string {
   if (severity === 'critical') {
     return 'Add a set piece, runner, or multi-beat gag to re-engage the audience.';
@@ -147,11 +214,23 @@ function gapSuggestion(severity: Gap['severity']): string {
 }
 
 function mapGaps(
-  raw: PromptARaw['gapAnalysis'],
-  linesPerMinute: number
+  raw: PromptARaw,
+  linesPerMinute: number,
+  totalLines: number,
+  runtimeMinutes: number
 ): { gaps: Gap[]; retentionCliff: Gap | null; recommendations: GapRecommendation[] } {
+  const gapAnalysis = raw?.gapAnalysis ?? ({} as PromptARaw['gapAnalysis']);
+  const computedPriorities = calculateGapPriorityScores({
+    gaps: gapAnalysis?.gaps ?? [],
+    totalLines,
+    runtimeMinutes,
+    jokesByLine: raw?.jokeAnalysis?.jokesByLine ?? [],
+    laughsPerMinute: raw?.metrics?.laughsPerMinute ?? 0,
+  });
+
+  const prioritySource = (computedPriorities.length ? computedPriorities : gapAnalysis?.gapPriorityScores) ?? [];
   const priorityLookup = new Map<string, number>();
-  (raw?.gapPriorityScores ?? []).forEach((score) => {
+  prioritySource.forEach((score) => {
     priorityLookup.set(`${score.startLine}-${score.endLine}`, score.priority);
   });
 
@@ -163,13 +242,13 @@ function mapGaps(
     return 0;
   };
 
-  const gaps: Gap[] = (raw?.gaps ?? []).map((gap, index) => {
+  const gaps: Gap[] = (gapAnalysis?.gaps ?? []).map((gap, index) => {
     const durationMinutes = toMinutes(gap.length ?? 0, gap.durationMin);
     const severity = getGapSeverity(durationMinutes, gap.length ?? 0);
     const startMinute = linesPerMinute > 0 ? Number(((gap.startLine ?? 0) / linesPerMinute).toFixed(1)) : 0;
     const endMinute = linesPerMinute > 0 ? Number(((gap.endLine ?? 0) / linesPerMinute).toFixed(1)) : durationMinutes;
     const key = `${gap.startLine}-${gap.endLine}`;
-    const priority = priorityLookup.get(key) ?? raw?.gapPriorityScores?.[index]?.priority ?? index + 1;
+    const priority = priorityLookup.get(key) ?? prioritySource[index]?.priority ?? index + 1;
 
     return {
       id: `gap_${index}`,
@@ -187,17 +266,20 @@ function mapGaps(
     };
   });
 
-  const retention = raw?.retentionCliff
+  const retention = gapAnalysis?.retentionCliff
     ? ({
         id: 'retention_cliff',
-        startLine: raw.retentionCliff.startLine ?? 0,
-        endLine: raw.retentionCliff.endLine ?? 0,
+        startLine: gapAnalysis.retentionCliff.startLine ?? 0,
+        endLine: gapAnalysis.retentionCliff.endLine ?? 0,
         startMinute:
-          linesPerMinute > 0 ? Number(((raw.retentionCliff.startLine ?? 0) / linesPerMinute).toFixed(1)) : 0,
-        endMinute: linesPerMinute > 0 ? Number(((raw.retentionCliff.endLine ?? 0) / linesPerMinute).toFixed(1)) : 0,
-        durationMinutes: toMinutes(raw.retentionCliff.length ?? 0, raw.retentionCliff.durationMin),
-        durationLines: raw.retentionCliff.length ?? 0,
-        severity: getGapSeverity(toMinutes(raw.retentionCliff.length ?? 0, raw.retentionCliff.durationMin), raw.retentionCliff.length ?? 0),
+          linesPerMinute > 0 ? Number(((gapAnalysis.retentionCliff.startLine ?? 0) / linesPerMinute).toFixed(1)) : 0,
+        endMinute: linesPerMinute > 0 ? Number(((gapAnalysis.retentionCliff.endLine ?? 0) / linesPerMinute).toFixed(1)) : 0,
+        durationMinutes: toMinutes(gapAnalysis.retentionCliff.length ?? 0, gapAnalysis.retentionCliff.durationMin),
+        durationLines: gapAnalysis.retentionCliff.length ?? 0,
+        severity: getGapSeverity(
+          toMinutes(gapAnalysis.retentionCliff.length ?? 0, gapAnalysis.retentionCliff.durationMin),
+          gapAnalysis.retentionCliff.length ?? 0
+        ),
         isRetentionCliff: true,
         context: 'Audience engagement drops significantly here. Rebuild momentum before this point.',
         suggestion: 'Add a strong runner or payoff before this section to avoid drop-off.',
@@ -205,9 +287,11 @@ function mapGaps(
       } as Gap)
     : null;
 
-  const recommendations: GapRecommendation[] = (raw?.gapPriorityScores ?? []).map((score, index) => {
-    const gapId = gaps[index]?.id ?? `gap_${index}`;
-    const severity = gaps[index]?.severity ?? 'minor';
+  const recommendations: GapRecommendation[] = prioritySource.map((score, index) => {
+    const gapIndex = gaps.findIndex((gap) => gap.startLine === score.startLine && gap.endLine === score.endLine);
+    const targetGap = gapIndex >= 0 ? gaps[gapIndex] : gaps[index];
+    const gapId = targetGap?.id ?? `gap_${gapIndex >= 0 ? gapIndex : index}`;
+    const severity = targetGap?.severity ?? 'minor';
     const recText =
       severity === 'critical'
         ? `Rebuild lines ${score.startLine}-${score.endLine} with a set piece or layered bit.`
@@ -512,7 +596,7 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
     },
   };
 
-  const { gaps, retentionCliff, recommendations } = mapGaps(raw?.gapAnalysis ?? ({} as any), linesPerMinute);
+  const { gaps, retentionCliff, recommendations } = mapGaps(raw, linesPerMinute, totalLines, runtimeMinutes);
   const characterBalanceScore = raw?.metrics?.characterBalanceScore ?? raw?.characterAnalysis?.characterBalanceScore ?? 0;
   const { characters, balance } = mapCharacters(raw?.characterAnalysis ?? ({} as any), characterBalanceScore);
   const callbacks = mapCallbacks(raw?.callbackAnalysis ?? ({} as any));
@@ -600,18 +684,35 @@ function mapCharacters(raw: any, score: number): { characters: CharacterProfile[
 }
 
 function mapCallbacks(raw: any): CallbackAnalysis {
-  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any, i: number) => ({
-    id: `cb_${i}`,
-    setupLine: c.setupLine,
-    callbackLine: c.callbackLine,
-    description: c.description,
-    impact: 'high',
+  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any) => ({
+    setupLine: c.setupLine ?? 0,
+    setupQuote: c.description ?? '',
+    payoffLine: c.callbackLine ?? 0,
+    payoffQuote: '',
+    effectiveness: 'medium',
   }));
 
+  const missedCount = Math.max(0, raw?.missedCallbacks ?? 0);
+  const missedOpportunities = Array.from({ length: Math.min(missedCount, 5) }, (_, idx) => ({
+    setupLine: 0,
+    setupQuote: '',
+    suggestedPayoffLocation: `Unspecified gap ${idx + 1}`,
+    suggestedPayoff: 'Add a callback to re-engage the audience.',
+    potentialImpact: missedCount > 2 ? 'high' : 'medium',
+  }));
+
+  const callbackScore = Math.min(100, Math.round((raw?.callbackFrequency ?? 0) * 2));
+  const recommendations =
+    callbackScore < 50
+      ? ['Introduce callbacks earlier to lift pacing and retention.']
+      : raw?.missedCallbacks > 0
+        ? ['Convert missed setups into payoff beats to raise callback density.']
+        : [];
+
   return {
-    total: raw?.totalCallbacks ?? 0,
-    frequency: raw?.callbackFrequency ?? 0,
-    missedOpportunities: raw?.missedCallbacks ?? 0,
-    callbacks: details,
+    existingCallbacks: details,
+    missedOpportunities,
+    callbackScore,
+    recommendations,
   };
 }

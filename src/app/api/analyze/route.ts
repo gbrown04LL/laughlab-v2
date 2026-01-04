@@ -4,13 +4,15 @@ import { generateId } from '@/lib/utils';
 import { runPromptA } from '@/lib/llm/runPromptA';
 import { generateCoachNote } from '@/lib/llm/generateCoachNote';
 import { UpstreamError } from '@/lib/llm/chatgptRequest';
+import { AnalysisValidationError } from '@/lib/validation';
 import { 
   checkRateLimit, 
   checkUsageLimit, 
   incrementUsage, 
   getClientIP, 
   generateFingerprint,
-  cleanupRateLimitStore 
+  cleanupRateLimitStore,
+  RateLimitStoreError, 
 } from '@/lib/ratelimit';
 import type { FullAnalysis, ScriptFormat, AnalyzeResponse, UserTier } from '@/types';
 
@@ -145,9 +147,9 @@ export async function POST(request: NextRequest) {
       `[Analysis][${requestId}] Starting for "${safeTitle}" (${detectedFormat}), ${script.length} chars, key: ${rateLimitKey.slice(0, 12)}...`
     );
 
-    let validatedData;
+    let promptAResult;
     try {
-      validatedData = await runPromptA({
+      promptAResult = await runPromptA({
         script,
         format: detectedFormat as ScriptFormat,
         title: safeTitle,
@@ -157,6 +159,12 @@ export async function POST(request: NextRequest) {
       console.error(`[PromptA][${requestId}] Failed`, error);
       throw error;
     }
+
+    if (!promptAResult) {
+      throw new AnalysisValidationError('Prompt A returned no analysis', 'schema');
+    }
+
+    const { analysis: validatedData, telemetry: promptATelemetry } = promptAResult;
 
     // Generate Coach Note (Required)
     let coachFeedback = validatedData.coachNote;
@@ -181,6 +189,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
       title: safeTitle,
       format: detectedFormat as ScriptFormat,
+      telemetry: promptATelemetry,
       
       scriptStats: validatedData.scriptStats,
       metrics: validatedData.metrics,
@@ -216,6 +225,20 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error(`[Analysis][${requestId}] Error:`, error);
+
+    if (error instanceof RateLimitStoreError) {
+      return NextResponse.json<AnalyzeResponse>(
+        { success: false, error: error.message },
+        { status: 503 }
+      );
+    }
+
+    if (error instanceof AnalysisValidationError) {
+      return NextResponse.json<AnalyzeResponse>(
+        { success: false, error: error.message },
+        { status: error.reason === 'metrics' ? 422 : 400 }
+      );
+    }
 
     if (error instanceof UpstreamError) {
       const status = error.statusCode || 502;

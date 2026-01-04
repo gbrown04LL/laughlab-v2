@@ -5,15 +5,30 @@
 
 import { z } from 'zod';
 
-// Helper to clamp numbers
-const clampNumber = (min: number, max: number) => 
-  z.number().transform(n => Math.min(Math.max(n, min), max));
+// The system will often return fabricated 'valid' analyses (or none at all) because it silently masks schema failures, uses an invalid model name, and exposes stored results via a wide-open Supabase policy.
 
-const safeNumber = (defaultVal: number, min: number = 0, max: number = Infinity) =>
-  z.number().optional().default(defaultVal).transform(n => Math.min(Math.max(n ?? defaultVal, min), max));
+// Helper to enforce numeric ranges without mutating LLM output
+const safeNumber = (
+  defaultVal: number,
+  min: number = 0,
+  max: number = Infinity,
+  fieldName: string = 'value'
+) =>
+  (() => {
+    let schema = z
+      .number({ invalid_type_error: `${fieldName} must be a number` })
+      .finite(`${fieldName} must be a finite number`)
+      .min(min, { message: `${fieldName} must be >= ${min}` });
 
-const safePercentage = (defaultVal: number = 0) =>
-  safeNumber(defaultVal, 0, 100);
+    if (Number.isFinite(max)) {
+      schema = schema.max(max, { message: `${fieldName} must be <= ${max}` });
+    }
+
+    return schema.optional().default(defaultVal);
+  })();
+
+const safePercentage = (defaultVal: number = 0, fieldName: string = 'percentage') =>
+  safeNumber(defaultVal, 0, 100, fieldName);
 
 const safeString = (defaultVal: string = '') =>
   z.string().optional().default(defaultVal).transform(s => (s ?? defaultVal).slice(0, 2000)); // Cap string length
@@ -320,6 +335,80 @@ export const AnalysisResponseSchema = z.object({
 
 export type ValidatedAnalysisResponse = z.infer<typeof AnalysisResponseSchema>;
 
+export class AnalysisValidationError extends Error {
+  reason: 'schema' | 'metrics';
+  constructor(message: string, reason: 'schema' | 'metrics') {
+    super(message);
+    this.name = 'AnalysisValidationError';
+    this.reason = reason;
+  }
+}
+
+function collectNumericIssues(
+  value: unknown,
+  field: string,
+  min: number,
+  max: number,
+  issues: string[]
+) {
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  if (typeof value !== 'number' || Number.isNaN(value) || !Number.isFinite(value)) {
+    issues.push(`${field} must be a finite number (received ${String(value)})`);
+    return;
+  }
+
+  if (value < min) {
+    issues.push(`${field} must be >= ${min} (received ${value})`);
+  } else if (value > max) {
+    issues.push(`${field} must be <= ${max} (received ${value})`);
+  }
+}
+
+export function validateAnalysisMetrics(json: unknown): boolean {
+  const data = json as any;
+  const issues: string[] = [];
+
+  collectNumericIssues(data?.metrics?.totalJokes, 'metrics.totalJokes', 0, 1000, issues);
+
+  const categories = data?.jokeAnalysis?.categoryCounts;
+  if (categories && typeof categories === 'object') {
+    collectNumericIssues(categories.Basic, 'jokeAnalysis.categoryCounts.Basic', 0, 500, issues);
+    collectNumericIssues(categories.Standard, 'jokeAnalysis.categoryCounts.Standard', 0, 500, issues);
+    collectNumericIssues(categories.Intermediate, 'jokeAnalysis.categoryCounts.Intermediate', 0, 500, issues);
+    collectNumericIssues(categories.Advanced, 'jokeAnalysis.categoryCounts.Advanced', 0, 500, issues);
+    collectNumericIssues(categories.HighComplexity, 'jokeAnalysis.categoryCounts.HighComplexity', 0, 500, issues);
+  }
+
+  const estimatedRuntime =
+    data?.metadata?.estimatedRuntimeMin ?? data?.metrics?.runtimeMinutes ?? undefined;
+  collectNumericIssues(estimatedRuntime, 'metadata.estimatedRuntimeMin', 0, 600, issues);
+
+  const gaps = Array.isArray(data?.gapAnalysis?.gaps) ? data.gapAnalysis.gaps : null;
+  if (gaps === null && data?.gapAnalysis?.gaps !== undefined) {
+    issues.push('gapAnalysis.gaps must be an array when provided');
+  }
+
+  gaps?.forEach((gap: any, index: number) => {
+    collectNumericIssues(gap?.durationMin, `gapAnalysis.gaps[${index}].durationMin`, 0, 120, issues);
+    collectNumericIssues(gap?.length, `gapAnalysis.gaps[${index}].length`, 0, 10000, issues);
+  });
+
+  const retention = data?.gapAnalysis?.retentionCliff;
+  if (retention) {
+    collectNumericIssues(retention.durationMin, 'gapAnalysis.retentionCliff.durationMin', 0, 120, issues);
+    collectNumericIssues(retention.length, 'gapAnalysis.retentionCliff.length', 0, 10000, issues);
+  }
+
+  if (issues.length > 0) {
+    throw new AnalysisValidationError(`Invalid analysis metrics: ${issues.join('; ')}`, 'metrics');
+  }
+
+  return true;
+}
+
 // ===========================================
 // VALIDATION FUNCTION
 // ===========================================
@@ -328,8 +417,11 @@ export function validateAndSanitizeAnalysis(rawData: unknown): ValidatedAnalysis
   const result = AnalysisResponseSchema.safeParse(rawData);
 
   if (!result.success) {
-    const issues = result.error.issues.slice(0, 5).map((issue) => issue.message).join('; ');
-    throw new Error(`Analysis validation failed: ${issues || 'invalid schema'}`);
+    const issues = result.error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join('.') || 'root'}: ${issue.message}`)
+      .join('; ');
+    throw new AnalysisValidationError(`Analysis validation failed: ${issues || 'invalid schema'}`, 'schema');
   }
 
   return result.data;

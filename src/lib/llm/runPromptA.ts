@@ -1,9 +1,9 @@
-import type { ScriptFormat } from '@/types';
+import type { PromptTelemetry, ScriptFormat } from '@/types';
 import { openai, getLLMModelName } from '@/lib/llm/client';
 import { PROMPT_A_SYSTEM } from '@/lib/llm/promptA';
 import { PROMPT_A_TOOL } from '@/lib/llm/tools/promptA.tool';
 import { translatePromptAToFullAnalysis, type PromptARaw } from '@/lib/llm/translatePromptAToFullAnalysis';
-import { validateAndSanitizeAnalysis } from '@/lib/validation';
+import { AnalysisValidationError, validateAndSanitizeAnalysis, validateAnalysisMetrics } from '@/lib/validation';
 import type { ValidatedAnalysisResponse } from '@/lib/validation';
 import type OpenAI from 'openai';
 
@@ -11,13 +11,21 @@ interface RunPromptAParams {
   script: string;
   format: ScriptFormat;
   title: string;
+  requestId?: string;
+}
+
+export interface PromptAResult {
+  analysis: ValidatedAnalysisResponse;
+  telemetry: PromptTelemetry;
 }
 
 export async function runPromptA({
   script,
   format,
   title,
-}: RunPromptAParams): Promise<ValidatedAnalysisResponse> {
+}: RunPromptAParams): Promise<PromptAResult> {
+  const modelName = getLLMModelName();
+  const promptStart = Date.now();
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     {
       role: 'system',
@@ -45,7 +53,7 @@ export async function runPromptA({
 
   while (attempts < 2) {
     const response = await openai.chat.completions.create({
-      model: getLLMModelName(),
+      model: modelName,
       messages,
       tools,
       tool_choice: { type: 'function', function: { name: 'analyze_script' } },
@@ -58,11 +66,16 @@ export async function runPromptA({
     } else {
       try {
         const parsedInput = JSON.parse(toolCall.function.arguments) as PromptARaw;
+        validateAnalysisMetrics(parsedInput);
         const translated = translatePromptAToFullAnalysis(parsedInput);
         const validated = validateAndSanitizeAnalysis(translated);
-        return validated;
+        const latencyMs = Date.now() - promptStart;
+        return { analysis: validated, telemetry: { promptAModel: modelName, promptALatencyMs: latencyMs } };
       } catch (error) {
         lastError = error instanceof Error ? error.message : 'Translation failed';
+        if (error instanceof AnalysisValidationError) {
+          throw error;
+        }
       }
     }
 

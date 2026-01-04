@@ -43,6 +43,12 @@ CREATE INDEX IF NOT EXISTS idx_reports_user_id ON public.reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_reports_fingerprint ON public.reports(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_reports_created_at ON public.reports(created_at DESC);
 
+-- Telemetry (Prompt A metadata)
+ALTER TABLE public.reports
+  ADD COLUMN IF NOT EXISTS prompt_a_model TEXT,
+  ADD COLUMN IF NOT EXISTS prompt_a_latency_ms INTEGER;
+CREATE INDEX IF NOT EXISTS idx_reports_prompt_a_model ON public.reports(prompt_a_model);
+
 -- ==========================================
 -- USAGE / RATE LIMIT COUNTERS
 -- ==========================================
