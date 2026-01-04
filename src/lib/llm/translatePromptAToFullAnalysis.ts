@@ -10,6 +10,7 @@ import type {
   CharacterBalance,
   Callback,
   CallbackAnalysis,
+  CallbackOpportunity,
   JokeComplexity,
   TimelineMoment,
 } from '@/types';
@@ -581,37 +582,55 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
 
 function mapCharacters(raw: any, score: number): { characters: CharacterProfile[]; balance: CharacterBalance } {
   const jokesPerCharacter = raw?.jokesPerCharacter ?? {};
-  const characters: CharacterProfile[] = Object.entries(jokesPerCharacter).map(([name, jokes]) => ({
+  const entries = Object.entries(jokesPerCharacter);
+  const totalJokes = entries.reduce((sum, [, jokes]) => sum + (jokes as number), 0);
+
+  const characters: CharacterProfile[] = entries.map(([name, jokes]) => ({
     name,
     jokeCount: jokes as number,
-    lines: 0,
-    sentiment: 'neutral',
-    traits: [],
+    jokePercentage: totalJokes > 0 ? Math.round(((jokes as number) / totalJokes) * 100) : 0,
+    primaryStyle: 'observational',
+    strongestMoment: '',
+    voiceConsistency: 75,
+    screenTimeEstimate: entries.length > 0 ? Math.round(100 / entries.length) : 0,
   }));
+
+  const sortedByJokes = [...characters].sort((a, b) => b.jokeCount - a.jokeCount);
+  const dominantCharacter = sortedByJokes.length > 0 ? sortedByJokes[0].name : null;
+  const underutilized = sortedByJokes.filter(c => c.jokePercentage < 10).map(c => c.name);
 
   return {
     characters,
     balance: {
       score,
       status: score >= 70 ? 'balanced' : 'unbalanced',
-      analysis: 'Character distribution analysis based on joke frequency.',
+      dominantCharacter,
+      underutilized,
     },
   };
 }
 
 function mapCallbacks(raw: any): CallbackAnalysis {
-  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any, i: number) => ({
-    id: `cb_${i}`,
-    setupLine: c.setupLine,
-    callbackLine: c.callbackLine,
-    description: c.description,
-    impact: 'high',
+  const existingCallbacks: Callback[] = (raw?.callbacksDetail ?? []).map((c: any) => ({
+    setupLine: c.setupLine ?? 0,
+    setupQuote: c.setupQuote ?? '',
+    payoffLine: c.callbackLine ?? 0,
+    payoffQuote: c.payoffQuote ?? '',
+    effectiveness: (c.effectiveness as 'strong' | 'medium' | 'weak') ?? 'medium',
+  }));
+
+  const missedOpportunities: CallbackOpportunity[] = (raw?.missedCallbackOpportunities ?? []).map((m: any) => ({
+    setupLine: m.setupLine ?? 0,
+    setupQuote: m.setupQuote ?? '',
+    suggestedPayoffLocation: m.suggestedPayoffLocation ?? '',
+    suggestedPayoff: m.suggestedPayoff ?? '',
+    potentialImpact: (m.potentialImpact as 'high' | 'medium') ?? 'medium',
   }));
 
   return {
-    total: raw?.totalCallbacks ?? 0,
-    frequency: raw?.callbackFrequency ?? 0,
-    missedOpportunities: raw?.missedCallbacks ?? 0,
-    callbacks: details,
+    existingCallbacks,
+    missedOpportunities,
+    callbackScore: raw?.callbackScore ?? 70,
+    recommendations: raw?.callbackRecommendations ?? [],
   };
 }
