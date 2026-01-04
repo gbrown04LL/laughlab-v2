@@ -1,34 +1,23 @@
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
-const DEFAULT_MODEL = 'claude-3-5-sonnet-20240620';
+const DEFAULT_MODEL = 'gpt-5.2';
 
-export function getAnthropicModelName(): string {
+export function getLLMModelName(): string {
   const envModel = process.env.LLM_MODEL_NAME;
 
   if (envModel !== undefined) {
     const trimmed = envModel.trim();
 
     if (!trimmed) {
-      throw new Error('LLM_MODEL_NAME is set but empty. Provide a valid Anthropic model name.');
-    }
-
-    const allowedPrefixes = ['claude-', 'gpt-'];
-    if (!allowedPrefixes.some((prefix) => trimmed.startsWith(prefix))) {
-      throw new Error(
-        `LLM_MODEL_NAME="${trimmed}" is invalid. Expected model to start with one of: ${allowedPrefixes.join(', ')}.`
-      );
+      throw new Error('LLM_MODEL_NAME is set but empty. Provide a valid model name.');
     }
 
     return trimmed;
   }
 
-  if (!DEFAULT_MODEL) {
-    throw new Error('LLM model name is not configured. Set LLM_MODEL_NAME to a supported model.');
-  }
-
   return DEFAULT_MODEL;
 }
 
-export const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
+export const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || '',
 });

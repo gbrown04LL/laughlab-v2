@@ -1,11 +1,16 @@
-type PromptLabel = 'A' | 'B' | 'coach';
+/**
+ * Lightweight OpenAI API client with retry logic and timeouts.
+ * Used for non-streaming chat completions.
+ */
+
+export type PromptLabel = 'A' | 'B' | 'coach' | 'format';
 
 const OPENAI_API_URL = process.env.OPENAI_API_URL ?? 'https://api.openai.com/v1/chat/completions';
-const DEFAULT_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
-const CHATGPT_TIMEOUT_MS = 20000;
+const DEFAULT_MODEL = 'gpt-5.2';
+const CHATGPT_TIMEOUT_MS = 60000; // 60s
 const MAX_ATTEMPTS = 3;
-const BASE_BACKOFF_MS = [250, 750];
-const JITTER_MAX_MS = 200;
+const BASE_BACKOFF_MS = [1000, 2000, 4000];
+const JITTER_MAX_MS = 500;
 
 export class UpstreamError extends Error {
   statusCode: number;
@@ -154,7 +159,7 @@ export async function createChatCompletion(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: payload.model ?? DEFAULT_MODEL,
+      model: payload.model ?? process.env.LLM_MODEL_NAME ?? DEFAULT_MODEL,
       ...payload,
     }),
     signal,
@@ -217,4 +222,3 @@ export async function callChatGPTWithRetry<T>(
     promptLabel,
   });
 }
-

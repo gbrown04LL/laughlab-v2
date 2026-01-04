@@ -1,11 +1,11 @@
 import type { ScriptFormat } from '@/types';
-import { anthropic, getAnthropicModelName } from '@/lib/llm/client';
+import { openai, getLLMModelName } from '@/lib/llm/client';
 import { PROMPT_A_SYSTEM } from '@/lib/llm/promptA';
 import { PROMPT_A_TOOL } from '@/lib/llm/tools/promptA.tool';
 import { translatePromptAToFullAnalysis, type PromptARaw } from '@/lib/llm/translatePromptAToFullAnalysis';
 import { validateAndSanitizeAnalysis } from '@/lib/validation';
 import type { ValidatedAnalysisResponse } from '@/lib/validation';
-import Anthropic from '@anthropic-ai/sdk';
+import type OpenAI from 'openai';
 
 interface RunPromptAParams {
   script: string;
@@ -18,15 +18,25 @@ export async function runPromptA({
   format,
   title,
 }: RunPromptAParams): Promise<ValidatedAnalysisResponse> {
-  const messages: Anthropic.MessageParam[] = [
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    {
+      role: 'system',
+      content: PROMPT_A_SYSTEM,
+    },
     {
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `Analyze this comedy script and call the tool with the full analysis object.\nFormat: ${format}\nTitle: ${title}\n\nSCRIPT:\n${script}`,
-        },
-      ],
+      content: `Analyze this comedy script and call the tool with the full analysis object.\nFormat: ${format}\nTitle: ${title}\n\nSCRIPT:\n${script}`,
+    },
+  ];
+
+  const tools: OpenAI.Chat.ChatCompletionTool[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'analyze_script',
+        description: PROMPT_A_TOOL.description,
+        parameters: PROMPT_A_TOOL.input_schema,
+      },
     },
   ];
 
@@ -34,22 +44,21 @@ export async function runPromptA({
   let lastError = '';
 
   while (attempts < 2) {
-    const response = await anthropic.messages.create({
-      model: getAnthropicModelName(),
-      max_tokens: 8192,
-      temperature: 0,
-      system: PROMPT_A_SYSTEM,
-      tools: [PROMPT_A_TOOL],
-      tool_choice: { type: 'tool', name: 'analyze_script' },
+    const response = await openai.chat.completions.create({
+      model: getLLMModelName(),
       messages,
+      tools,
+      tool_choice: { type: 'function', function: { name: 'analyze_script' } },
+      temperature: 0,
     });
 
-    const toolUse = response.content.find((block) => block.type === 'tool_use');
-    if (!toolUse || toolUse.type !== 'tool_use') {
-      lastError = 'Missing tool_use block';
+    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+    if (!toolCall || toolCall.type !== 'function') {
+      lastError = 'Missing tool_call block';
     } else {
       try {
-        const translated = translatePromptAToFullAnalysis(toolUse.input as PromptARaw);
+        const parsedInput = JSON.parse(toolCall.function.arguments) as PromptARaw;
+        const translated = translatePromptAToFullAnalysis(parsedInput);
         const validated = validateAndSanitizeAnalysis(translated);
         return validated;
       } catch (error) {
@@ -58,15 +67,13 @@ export async function runPromptA({
     }
 
     attempts += 1;
-    messages.push({ role: 'assistant', content: response.content });
+    const assistantMessage = response.choices[0]?.message;
+    if (assistantMessage) {
+      messages.push(assistantMessage);
+    }
     messages.push({
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `Your tool output failed validation because: ${lastError}. Fix your JSON output to conform to the schema and call the tool again.`,
-        },
-      ],
+      content: `Your tool output failed validation because: ${lastError}. Fix your JSON output to conform to the schema and call the tool again.`,
     });
   }
 
