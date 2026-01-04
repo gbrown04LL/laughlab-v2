@@ -12,8 +12,11 @@ export function getAnthropicModelName(): string {
       throw new Error('LLM_MODEL_NAME is set but empty. Provide a valid Anthropic model name.');
     }
 
-    if (!trimmed.startsWith('claude-')) {
-      throw new Error(`LLM_MODEL_NAME="${trimmed}" is invalid. Expected an Anthropic Claude model identifier.`);
+    const allowedPrefixes = ['claude-', 'gpt-'];
+    if (!allowedPrefixes.some((prefix) => trimmed.startsWith(prefix))) {
+      throw new Error(
+        `LLM_MODEL_NAME="${trimmed}" is invalid. Expected model to start with one of: ${allowedPrefixes.join(', ')}.`
+      );
     }
 
     return trimmed;
