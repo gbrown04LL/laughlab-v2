@@ -25,10 +25,17 @@ CREATE POLICY "Allow anonymous inserts" ON public.reports
 
 -- Allow users to read their own reports based on fingerprint (anonymous)
 -- Or by user_id (if authenticated)
+DROP POLICY IF EXISTS "Allow users to read their own reports" ON public.reports;
 CREATE POLICY "Allow users to read their own reports" ON public.reports
     FOR SELECT USING (
-        (auth.uid() = user_id) OR 
-        (fingerprint IS NOT NULL) -- We will filter by fingerprint in the query
+        (auth.uid() = user_id) OR
+        (
+            fingerprint IS NOT NULL AND
+            fingerprint = COALESCE(
+                (current_setting('request.jwt.claims', true)::jsonb ->> 'fingerprint'),
+                current_setting('request.headers.x-client-fingerprint', true)
+            )
+        )
     );
 
 -- 4. Create indexes for performance

@@ -7,22 +7,31 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 // Lazy initialization to avoid errors during build/SSG
 let _supabase: SupabaseClient | null = null;
 
-function getSupabaseClient(): SupabaseClient | null {
-  if (_supabase) return _supabase;
+function getSupabaseClient(fingerprint?: string): SupabaseClient | null {
+  if (!fingerprint && _supabase) return _supabase;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     return null;
   }
 
-  _supabase = createClient(supabaseUrl, supabaseAnonKey);
-  return _supabase;
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
+    global: fingerprint
+      ? { headers: { 'X-Client-Fingerprint': fingerprint } }
+      : undefined,
+  });
+
+  if (!fingerprint) {
+    _supabase = client;
+  }
+
+  return client;
 }
 
 /**
  * Helper to save an analysis to Supabase
  */
 export async function saveAnalysisToSupabase(analysis: any, fingerprint?: string) {
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseClient(fingerprint);
   if (!supabase) {
     return { success: false, error: 'Supabase not configured' };
   }
@@ -52,7 +61,7 @@ export async function saveAnalysisToSupabase(analysis: any, fingerprint?: string
  * Helper to fetch analysis history from Supabase
  */
 export async function fetchAnalysisHistory(fingerprint?: string) {
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseClient(fingerprint);
   if (!supabase) {
     return { success: false, error: 'Supabase not configured', data: [] };
   }
@@ -81,9 +90,10 @@ export async function fetchAnalysisHistory(fingerprint?: string) {
  * Helper to fetch a single analysis by ID from Supabase
  */
 export async function fetchAnalysisById(
-  id: string
+  id: string,
+  fingerprint?: string
 ): Promise<FullAnalysis | null> {
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseClient(fingerprint);
   if (!supabase) {
     return null;
   }

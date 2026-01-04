@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { anthropic } from '@/lib/llm/client';
+import { anthropic, getAnthropicModelName } from '@/lib/llm/client';
 import { PROMPT_B_SYSTEM } from '@/lib/llm/promptB';
 import { validatePromptB } from '@/lib/llm/validatePromptB';
 import type { NormalizedAnalysis } from '@/lib/llm/validatePromptA';
@@ -20,29 +20,6 @@ function buildUserMessage(analysis: NormalizedAnalysis): string {
   )}`;
 }
 
-function fallbackFeedback(analysis: NormalizedAnalysis): string {
-  const lpm = analysis.metrics.laughsPerMinute.toFixed(1);
-  const lpj = analysis.metrics.linesPerJoke.toFixed(1);
-  const retention =
-    analysis.gaps.retentionCliff &&
-    `A late gap spans lines ${analysis.gaps.retentionCliff.startLine}-${analysis.gaps.retentionCliff.endLine}.`;
-  const gap =
-    analysis.gaps.gaps[0] &&
-    `Noticeable gap around lines ${analysis.gaps.gaps[0].startLine}-${analysis.gaps.gaps[0].endLine}.`;
-  const character =
-    analysis.characters.characters[0] &&
-    `${analysis.characters.characters[0].name} carries ${analysis.characters.characters[0].jokeCount} jokes.`;
-
-  const gapLine = retention || gap || 'No major retention cliff detected yet.';
-  const characterLine = character || 'Joke load is not yet assigned to characters.';
-
-  return [
-    `LaughsPerMinute sits at ${lpm} with linesPerJoke at ${lpj}, setting a clear baseline while ${gapLine}`,
-    `Let’s tighten pacing by turning that note into punchlines and balancing delivery so ${characterLine}`,
-    'Next, increase early joke density, make each beat land a punchline, and share the laugh lines across characters. Ready to analyze some punchline gaps?',
-  ].join('\n\n');
-}
-
 export async function runPromptB({
   analysis,
 }: RunPromptBParams): Promise<string> {
@@ -57,7 +34,7 @@ export async function runPromptB({
 
   while (attempts < 2) {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: getAnthropicModelName(),
       max_tokens: 1024,
       temperature: 0.3,
       system: PROMPT_B_SYSTEM,
@@ -88,5 +65,5 @@ export async function runPromptB({
     });
   }
 
-  return fallbackFeedback(analysis);
+  throw new Error(`Prompt B failed after retries: ${lastError || 'Unknown error'}`);
 }

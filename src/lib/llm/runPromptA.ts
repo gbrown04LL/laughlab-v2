@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { ScriptFormat } from '@/types';
-import { anthropic } from '@/lib/llm/client';
+import { anthropic, getAnthropicModelName } from '@/lib/llm/client';
 import { PROMPT_A_SYSTEM } from '@/lib/llm/promptA';
 import { PROMPT_A_TOOL } from '@/lib/llm/tools/promptA.tool';
 import { translatePromptAToFullAnalysis, type PromptARaw } from '@/lib/llm/translatePromptAToFullAnalysis';
@@ -35,7 +35,7 @@ export async function runPromptA({
 
   while (attempts < 2) {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: getAnthropicModelName(),
       max_tokens: 8192,
       temperature: 0,
       system: PROMPT_A_SYSTEM,
