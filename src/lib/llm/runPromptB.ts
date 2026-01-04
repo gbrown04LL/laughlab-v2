@@ -23,12 +23,10 @@ function buildUserMessage(analysis: NormalizedAnalysis): string {
 export async function runPromptB({
   analysis,
 }: RunPromptBParams): Promise<string> {
-  const baseMessage: Anthropic.MessageParam = {
-    role: 'user',
-    content: [{ type: 'text', text: buildUserMessage(analysis) }],
-  };
+  const messages: Anthropic.MessageParam[] = [
+    { role: 'user', content: buildUserMessage(analysis) },
+  ];
 
-  const messages: Anthropic.MessageParam[] = [baseMessage];
   let attempts = 0;
   let lastError = '';
 
@@ -41,9 +39,9 @@ export async function runPromptB({
       messages,
     });
 
-    const textBlock = response.content.find((block) => block.type === 'text');
-    if (textBlock && textBlock.type === 'text') {
-      const validation = validatePromptB(textBlock.text);
+    const content = response.content.find((block) => block.type === 'text');
+    if (content && content.type === 'text') {
+      const validation = validatePromptB(content.text);
       if (validation.ok) {
         return validation.value;
       }
@@ -56,12 +54,7 @@ export async function runPromptB({
     messages.push({ role: 'assistant', content: response.content });
     messages.push({
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: 'Fix formatting: exactly 3 paragraphs and end with the required line.',
-        },
-      ],
+      content: 'Fix formatting: exactly 3 paragraphs and end with the required line.',
     });
   }
 

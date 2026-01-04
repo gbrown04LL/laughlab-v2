@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { ScriptFormat } from '@/types';
 import { anthropic, getAnthropicModelName } from '@/lib/llm/client';
 import { PROMPT_A_SYSTEM } from '@/lib/llm/promptA';
@@ -6,6 +5,7 @@ import { PROMPT_A_TOOL } from '@/lib/llm/tools/promptA.tool';
 import { translatePromptAToFullAnalysis, type PromptARaw } from '@/lib/llm/translatePromptAToFullAnalysis';
 import { validateAndSanitizeAnalysis } from '@/lib/validation';
 import type { ValidatedAnalysisResponse } from '@/lib/validation';
+import Anthropic from '@anthropic-ai/sdk';
 
 interface RunPromptAParams {
   script: string;

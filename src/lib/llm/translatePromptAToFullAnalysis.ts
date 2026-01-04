@@ -15,6 +15,14 @@ import type {
 } from '@/types';
 import { estimateRuntime } from '@/lib/utils';
 
+const FORMAT_BENCHMARKS: Record<ScriptFormat, { targetLPM: number; targetLPJ: number; defaultPercentile: number }> = {
+  sitcom: { targetLPM: 2.4, targetLPJ: 5.5, defaultPercentile: 55 },
+  feature: { targetLPM: 1.6, targetLPJ: 7.5, defaultPercentile: 48 },
+  sketch: { targetLPM: 3.2, targetLPJ: 4.8, defaultPercentile: 60 },
+  standup: { targetLPM: 4.5, targetLPJ: 3.5, defaultPercentile: 62 },
+  auto: { targetLPM: 2.0, targetLPJ: 6.0, defaultPercentile: 50 },
+};
+
 export interface PromptARaw {
   metadata: {
     formatType: 'auto' | 'sitcom' | 'singlecam' | 'sketch' | 'standup' | 'feature';
@@ -106,6 +114,10 @@ function toScriptFormat(format: PromptARaw['metadata']['formatType']): ScriptFor
   if (format === 'singlecam') return 'sitcom';
   if (format === 'auto') return 'auto';
   return format;
+}
+
+function resolveFormatBenchmark(format: ScriptFormat) {
+  return FORMAT_BENCHMARKS[format] ?? FORMAT_BENCHMARKS.auto;
 }
 
 function mapJokeDistribution(raw: PromptARaw['jokeAnalysis']['categoryCounts']): JokeDistribution {
@@ -459,22 +471,44 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
     (totalLines ? estimateRuntime(totalLines) : 0);
   const linesPerMinute =
     runtimeMinutes > 0 && totalLines > 0 ? Math.max(totalLines / runtimeMinutes, 1) : 15;
+  const benchmark = resolveFormatBenchmark(format);
+  const percentile =
+    (raw as any)?.metrics?.industryPercentile ??
+    benchmark.defaultPercentile; // TODO: allow nullable percentile when frontend schema permits
+
+  const laughsPerMinute = raw?.metrics?.laughsPerMinute ?? 0;
+  const linesPerJoke = raw?.metrics?.linesPerJoke ?? 0;
+
+  const tolerance = 0.15;
+  const lpmStatus: CoreMetrics['formatComparison']['lpmStatus'] =
+    laughsPerMinute > benchmark.targetLPM * (1 + tolerance)
+      ? 'above'
+      : laughsPerMinute < benchmark.targetLPM * (1 - tolerance)
+        ? 'below'
+        : 'on-target';
+
+  const lpjStatus: CoreMetrics['formatComparison']['lpjStatus'] =
+    linesPerJoke < benchmark.targetLPJ * (1 - tolerance)
+      ? 'above'
+      : linesPerJoke > benchmark.targetLPJ * (1 + tolerance)
+        ? 'below'
+        : 'on-target';
 
   const metrics: CoreMetrics = {
     overallScore: raw?.scores?.overallScore ?? 0,
-    laughsPerMinute: raw?.metrics?.laughsPerMinute ?? 0,
-    linesPerJoke: raw?.metrics?.linesPerJoke ?? 0,
+    laughsPerMinute,
+    linesPerJoke,
     totalJokes: raw?.metrics?.totalJokes ?? 0,
     peakLaughMoments: raw?.metrics?.peakLaughMoments ?? 0,
     sustainedLaughSequences: raw?.metrics?.sustainedLaughCount ?? 0,
     callbackFrequency: raw?.metrics?.callbackFrequency ?? 0,
     jokeDistribution: mapJokeDistribution(raw?.jokeAnalysis?.categoryCounts ?? ({} as any)),
     formatComparison: {
-      targetLPM: 2.0,
-      targetLPJ: 6.0,
-      lpmStatus: 'on-target',
-      lpjStatus: 'on-target',
-      industryPercentile: 50,
+      targetLPM: benchmark.targetLPM,
+      targetLPJ: benchmark.targetLPJ,
+      lpmStatus,
+      lpjStatus,
+      industryPercentile: percentile,
     },
   };
 

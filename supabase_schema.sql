@@ -42,3 +42,49 @@ CREATE POLICY "Allow users to read their own reports" ON public.reports
 CREATE INDEX IF NOT EXISTS idx_reports_user_id ON public.reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_reports_fingerprint ON public.reports(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_reports_created_at ON public.reports(created_at DESC);
+
+-- ==========================================
+-- USAGE / RATE LIMIT COUNTERS
+-- ==========================================
+CREATE TABLE IF NOT EXISTS public.usage_counters (
+    key TEXT NOT NULL,
+    window_type TEXT NOT NULL,
+    window_start TIMESTAMPTZ NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    CONSTRAINT usage_counters_pkey PRIMARY KEY (key, window_type, window_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_counters_window ON public.usage_counters(window_type, window_start);
+CREATE INDEX IF NOT EXISTS idx_usage_counters_key ON public.usage_counters(key);
+
+ALTER TABLE public.usage_counters ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role manages usage counters" ON public.usage_counters
+    FOR ALL
+    USING (auth.role() = 'service_role')
+    WITH CHECK (auth.role() = 'service_role');
+
+CREATE OR REPLACE FUNCTION public.increment_usage_counter(
+    p_key TEXT,
+    p_window_type TEXT,
+    p_window_start TIMESTAMPTZ,
+    p_amount INTEGER DEFAULT 1
+) RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    new_count INTEGER;
+BEGIN
+    INSERT INTO public.usage_counters(key, window_type, window_start, count)
+    VALUES (p_key, p_window_type, p_window_start, p_amount)
+    ON CONFLICT (key, window_type, window_start)
+    DO UPDATE SET count = public.usage_counters.count + p_amount,
+                  updated_at = timezone('utc'::text, now())
+    RETURNING count INTO new_count;
+
+    RETURN new_count;
+END;
+$$;
