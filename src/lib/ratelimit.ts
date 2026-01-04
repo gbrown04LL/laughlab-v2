@@ -4,6 +4,7 @@
 // Simple in-memory rate limiter + usage tracking with calendar month reset
 
 import type { UserTier } from '@/types';
+import { getServerSupabaseClient } from '@/lib/serverSupabaseClient';
 
 // ===========================================
 // RATE LIMITING (IP-based)
@@ -31,12 +32,106 @@ function getTodayString(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-export function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number; reason?: string } {
+function normalizeIdentifier(identifier: string): string {
+  if (!identifier || identifier === 'unknown') {
+    return 'anon-unknown';
+  }
+  return identifier;
+}
+
+function getWindowStart(windowMs: number): Date {
+  const now = Date.now();
+  const start = Math.floor(now / windowMs) * windowMs;
+  const date = new Date(start);
+  date.setMilliseconds(0);
+  return date;
+}
+
+async function incrementPersistentCounter(
+  key: string,
+  windowType: 'minute' | 'day' | 'month',
+  windowStart: Date,
+  amount: number = 1
+): Promise<number | null> {
+  const supabase = getServerSupabaseClient();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.rpc('increment_usage_counter', {
+      p_key: key,
+      p_window_type: windowType,
+      p_window_start: windowStart.toISOString(),
+      p_amount: amount,
+    });
+
+    if (error) throw error;
+    if (typeof data === 'number') return data;
+    return null;
+  } catch (error) {
+    console.warn('[RateLimit] Supabase increment failed, falling back to memory', error);
+    return null;
+  }
+}
+
+async function getPersistentCounter(
+  key: string,
+  windowType: 'minute' | 'day' | 'month',
+  windowStart: Date
+): Promise<number | null> {
+  const supabase = getServerSupabaseClient();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('usage_counters')
+      .select('count')
+      .eq('key', key)
+      .eq('window_type', windowType)
+      .eq('window_start', windowStart.toISOString())
+      .maybeSingle();
+
+    if (error) throw error;
+    return data?.count ?? 0;
+  } catch (error) {
+    console.warn('[RateLimit] Supabase read failed, falling back to memory', error);
+    return null;
+  }
+}
+
+export async function checkRateLimit(ip: string): Promise<{ allowed: boolean; retryAfter?: number; reason?: string }> {
   const now = Date.now();
   const today = getTodayString();
+  const key = normalizeIdentifier(ip);
+
+  // Try persistent counters first
+  const minuteStart = getWindowStart(RATE_LIMIT_CONFIG.windowMs);
+  const dayStart = new Date(`${today}T00:00:00.000Z`);
+
+  const minuteCount = await incrementPersistentCounter(key, 'minute', minuteStart);
+  const dayCount = await incrementPersistentCounter(key, 'day', dayStart);
+
+  if (minuteCount !== null && dayCount !== null) {
+    if (minuteCount > RATE_LIMIT_CONFIG.maxRequests) {
+      const retryAfter = Math.ceil((minuteStart.getTime() + RATE_LIMIT_CONFIG.windowMs - now) / 1000);
+      return {
+        allowed: false,
+        retryAfter,
+        reason: `Too many requests. Please wait ${retryAfter} seconds.`,
+      };
+    }
+
+    if (dayCount > RATE_LIMIT_CONFIG.maxRequestsPerDay) {
+      return {
+        allowed: false,
+        reason: 'Daily limit reached. Please try again tomorrow or upgrade your plan.',
+      };
+    }
+
+    return { allowed: true };
+  }
   
   // Check per-minute rate limit
-  const entry = rateLimitStore.get(ip);
+  const entry = rateLimitStore.get(key);
   
   if (entry) {
     if (now < entry.resetTime) {
@@ -55,14 +150,14 @@ export function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: num
       entry.resetTime = now + RATE_LIMIT_CONFIG.windowMs;
     }
   } else {
-    rateLimitStore.set(ip, {
+    rateLimitStore.set(key, {
       count: 1,
       resetTime: now + RATE_LIMIT_CONFIG.windowMs,
     });
   }
   
   // Check daily limit
-  const dailyEntry = dailyStore.get(ip);
+  const dailyEntry = dailyStore.get(key);
   
   if (dailyEntry) {
     if (dailyEntry.resetDate === today) {
@@ -79,7 +174,7 @@ export function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: num
       dailyEntry.resetDate = today;
     }
   } else {
-    dailyStore.set(ip, { count: 1, resetDate: today });
+    dailyStore.set(key, { count: 1, resetDate: today });
   }
   
   return { allowed: true };
@@ -122,9 +217,15 @@ interface UsageEntry {
 // In-memory usage store (keyed by fingerprint/IP for anonymous users)
 const usageStore = new Map<string, UsageEntry>();
 
+const fallbackUsageStore = usageStore;
+
 function getCurrentMonthKey(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getMonthStartDate(monthKey: string): Date {
+  return new Date(`${monthKey}-01T00:00:00.000Z`);
 }
 
 // Tier limits
@@ -135,14 +236,31 @@ const TIER_LIMITS: Record<UserTier, number> = {
   enterprise: Infinity,
 };
 
-export function checkUsageLimit(
+export async function checkUsageLimit(
   identifier: string, 
   tier: UserTier = 'free'
-): { allowed: boolean; remaining: number; limit: number; reason?: string } {
+): Promise<{ allowed: boolean; remaining: number; limit: number; reason?: string }> {
   const monthKey = getCurrentMonthKey();
   const limit = TIER_LIMITS[tier];
+  const key = normalizeIdentifier(identifier);
+  const monthStart = getMonthStartDate(monthKey);
+
+  const persistentCount = await getPersistentCounter(key, 'month', monthStart);
+  if (persistentCount !== null) {
+    const remaining = Math.max(0, limit - persistentCount);
+    if (persistentCount >= limit) {
+      return {
+        allowed: false,
+        remaining: 0,
+        limit,
+        reason: `You've used all ${limit} free analyses this month. Upgrade to continue.`,
+      };
+    }
+
+    return { allowed: true, remaining, limit };
+  }
   
-  const entry = usageStore.get(identifier);
+  const entry = fallbackUsageStore.get(key);
   
   if (entry) {
     // Check if we're in a new month
@@ -168,7 +286,7 @@ export function checkUsageLimit(
   }
   
   // New user
-  usageStore.set(identifier, {
+  fallbackUsageStore.set(key, {
     count: 0,
     monthKey,
     tier,
@@ -177,15 +295,31 @@ export function checkUsageLimit(
   return { allowed: true, remaining: limit, limit };
 }
 
-export function incrementUsage(identifier: string): void {
-  const entry = usageStore.get(identifier);
+export async function incrementUsage(identifier: string): Promise<void> {
+  const key = normalizeIdentifier(identifier);
+  const monthKey = getCurrentMonthKey();
+  const monthStart = getMonthStartDate(monthKey);
+
+  const incremented = await incrementPersistentCounter(key, 'month', monthStart, 1);
+  if (incremented !== null) {
+    return;
+  }
+
+  const entry = fallbackUsageStore.get(key);
   if (entry) {
     entry.count++;
+    return;
   }
+
+  fallbackUsageStore.set(key, {
+    count: 1,
+    monthKey,
+    tier: 'free',
+  });
 }
 
 export function getUsageStats(identifier: string): { count: number; monthKey: string } | null {
-  const entry = usageStore.get(identifier);
+  const entry = usageStore.get(normalizeIdentifier(identifier));
   if (!entry) return null;
   
   // Check for month rollover

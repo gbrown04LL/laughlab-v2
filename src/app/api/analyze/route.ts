@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
 import { detectFormat } from '@/lib/prompts';
 import { generateId } from '@/lib/utils';
 import { runPromptA } from '@/lib/llm/runPromptA';
-import { runPromptB } from '@/lib/llm/runPromptB';
 import { generateCoachNote } from '@/lib/llm/generateCoachNote';
+import { UpstreamError } from '@/lib/llm/chatgptRequest';
 import { 
   checkRateLimit, 
   checkUsageLimit, 
@@ -17,6 +16,7 @@ import type { FullAnalysis, ScriptFormat, AnalyzeResponse, UserTier } from '@/ty
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
+  const requestId = generateId('req');
   
   // Cleanup old rate limit entries
   cleanupRateLimitStore();
@@ -26,10 +26,12 @@ export async function POST(request: NextRequest) {
     // 1. RATE LIMITING (IP-based)
     // ===========================================
     const clientIP = getClientIP(request);
-    const rateLimitResult = checkRateLimit(clientIP);
+    const fingerprint = generateFingerprint(request);
+    const rateLimitKey = fingerprint || clientIP;
+    const rateLimitResult = await checkRateLimit(rateLimitKey);
     
     if (!rateLimitResult.allowed) {
-      console.log(`[Analysis] Rate limited IP: ${clientIP}`);
+      console.log(`[Analysis][${requestId}] Rate limited identifier: ${rateLimitKey}`);
       return NextResponse.json<AnalyzeResponse>(
         { success: false, error: rateLimitResult.reason || 'Too many requests' },
         { 
@@ -111,11 +113,10 @@ export async function POST(request: NextRequest) {
     // ===========================================
     // 3. USAGE LIMIT CHECK (with calendar month reset)
     // ===========================================
-    const fingerprint = generateFingerprint(request);
-    const usageResult = checkUsageLimit(fingerprint, safeTier);
+    const usageResult = await checkUsageLimit(rateLimitKey, safeTier);
     
     if (!usageResult.allowed) {
-      console.log(`[Analysis] Usage limit reached for: ${fingerprint}`);
+      console.log(`[Analysis][${requestId}] Usage limit reached for: ${rateLimitKey}`);
       return NextResponse.json<AnalyzeResponse>(
         { 
           success: false, 
@@ -128,9 +129,9 @@ export async function POST(request: NextRequest) {
     // ===========================================
     // 4. CHECK API KEY
     // ===========================================
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json<AnalyzeResponse>(
-        { success: false, error: 'API key not configured. Please add ANTHROPIC_API_KEY to your environment.' },
+        { success: false, error: 'API key not configured. Please add OPENAI_API_KEY to your environment.' },
         { status: 500 }
       );
     }
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
     const detectedFormat = safeFormat === 'auto' ? detectFormat(script) : safeFormat;
 
     console.log(
-      `[Analysis] Starting for "${safeTitle}" (${detectedFormat}), ${script.length} chars, IP: ${clientIP.slice(0, 10)}...`
+      `[Analysis][${requestId}] Starting for "${safeTitle}" (${detectedFormat}), ${script.length} chars, key: ${rateLimitKey.slice(0, 12)}...`
     );
 
     let validatedData;
@@ -150,9 +151,10 @@ export async function POST(request: NextRequest) {
         script,
         format: detectedFormat as ScriptFormat,
         title: safeTitle,
+        requestId,
       });
     } catch (error) {
-      console.error('[PromptA] Failed', error);
+      console.error(`[PromptA][${requestId}] Failed`, error);
       throw error;
     }
 
@@ -161,14 +163,13 @@ export async function POST(request: NextRequest) {
     
     // If Prompt A didn't provide it (or we want to override with the refined prompt), generate it now
     try {
-      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
       coachFeedback = await generateCoachNote({
-        anthropic,
         analysisJson: validatedData,
-        scriptMeta: { title: safeTitle, format: detectedFormat, tier: safeTier }
+        scriptMeta: { title: safeTitle, format: detectedFormat, tier: safeTier },
+        requestId,
       });
     } catch (error) {
-      console.error('[CoachNote] Failed to generate, using fallback', error);
+      console.error(`[CoachNote][${requestId}] Failed to generate, using fallback`, error);
       coachFeedback = "Your script shows promise! Focus on tightening the setups in the second act to improve pacing. Ready to analyze some punchline gaps?";
     }
 
@@ -197,10 +198,10 @@ export async function POST(request: NextRequest) {
     // ===========================================
     // 9. INCREMENT USAGE (only on success)
     // ===========================================
-    incrementUsage(fingerprint);
+    await incrementUsage(rateLimitKey);
 
     const duration = Date.now() - startTime;
-    console.log(`[Analysis] Completed in ${duration}ms, score: ${analysis.metrics.overallScore}, remaining: ${usageResult.remaining - 1}`);
+    console.log(`[Analysis][${requestId}] Completed in ${duration}ms, score: ${analysis.metrics.overallScore}, remaining: ${usageResult.remaining - 1}`);
 
     // Return with usage info in headers
     return NextResponse.json<AnalyzeResponse>(
@@ -214,28 +215,14 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error) {
-    console.error('[Analysis] Error:', error);
+    console.error(`[Analysis][${requestId}] Error:`, error);
 
-    // Handle specific error types
-    if (error instanceof Anthropic.APIError) {
-      if (error.status === 401) {
-        return NextResponse.json<AnalyzeResponse>(
-          { success: false, error: 'Invalid API key. Please check your ANTHROPIC_API_KEY.' },
-          { status: 401 }
-        );
-      }
-      if (error.status === 429) {
-        return NextResponse.json<AnalyzeResponse>(
-          { success: false, error: 'Rate limit exceeded. Please try again in a moment.' },
-          { status: 429 }
-        );
-      }
-      if (error.status === 529) {
-        return NextResponse.json<AnalyzeResponse>(
-          { success: false, error: 'Claude is currently overloaded. Please try again in a few minutes.' },
-          { status: 529 }
-        );
-      }
+    if (error instanceof UpstreamError) {
+      const status = error.statusCode || 502;
+      return NextResponse.json<AnalyzeResponse>(
+        { success: false, error: `Analysis request failed (${error.promptLabel}). Please try again shortly.` },
+        { status }
+      );
     }
 
     return NextResponse.json<AnalyzeResponse>(

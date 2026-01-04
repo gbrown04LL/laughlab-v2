@@ -1,8 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { ScriptFormat } from '@/types';
-import { anthropic } from '@/lib/llm/client';
 import { PROMPT_A_SYSTEM } from '@/lib/llm/promptA';
 import { PROMPT_A_TOOL } from '@/lib/llm/tools/promptA.tool';
+import { callChatGPTWithRetry, createChatCompletion, type ChatMessage, type ChatToolFunction } from '@/lib/llm/chatgptRequest';
 import { translatePromptAToFullAnalysis, type PromptARaw } from '@/lib/llm/translatePromptAToFullAnalysis';
 import { validateAndSanitizeAnalysis } from '@/lib/validation';
 import type { ValidatedAnalysisResponse } from '@/lib/validation';
@@ -11,22 +10,31 @@ interface RunPromptAParams {
   script: string;
   format: ScriptFormat;
   title: string;
+  requestId?: string;
 }
 
 export async function runPromptA({
   script,
   format,
   title,
+  requestId = 'unknown',
 }: RunPromptAParams): Promise<ValidatedAnalysisResponse> {
-  const messages: Anthropic.MessageParam[] = [
+  const messages: ChatMessage[] = [
+    { role: 'system', content: PROMPT_A_SYSTEM },
     {
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `Analyze this comedy script and call the tool with the full analysis object.\nFormat: ${format}\nTitle: ${title}\n\nSCRIPT:\n${script}`,
-        },
-      ],
+      content: `Analyze this comedy script and call the tool with the full analysis object.\nFormat: ${format}\nTitle: ${title}\n\nSCRIPT:\n${script}`,
+    },
+  ];
+
+  const tools: ChatToolFunction[] = [
+    {
+      type: 'function',
+      function: {
+        name: PROMPT_A_TOOL.name,
+        description: PROMPT_A_TOOL.description,
+        parameters: PROMPT_A_TOOL.input_schema,
+      },
     },
   ];
 
@@ -34,22 +42,28 @@ export async function runPromptA({
   let lastError = '';
 
   while (attempts < 2) {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
-      temperature: 0,
-      system: PROMPT_A_SYSTEM,
-      tools: [PROMPT_A_TOOL],
-      tool_choice: { type: 'tool', name: 'analyze_script' },
-      messages,
-    });
+    const response = await callChatGPTWithRetry(
+      { requestId, promptLabel: 'A' },
+      (signal) =>
+        createChatCompletion(
+          {
+            messages,
+            tools,
+            tool_choice: { type: 'function', function: { name: PROMPT_A_TOOL.name } },
+            temperature: 0,
+            max_tokens: 8192,
+          },
+          signal
+        )
+    );
 
-    const toolUse = response.content.find((block) => block.type === 'tool_use');
-    if (!toolUse || toolUse.type !== 'tool_use') {
-      lastError = 'Missing tool_use block';
+    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+    if (!toolCall) {
+      lastError = 'Missing tool call';
     } else {
       try {
-        const translated = translatePromptAToFullAnalysis(toolUse.input as PromptARaw);
+        const parsedArgs = JSON.parse(toolCall.function.arguments) as PromptARaw;
+        const translated = translatePromptAToFullAnalysis(parsedArgs);
         const validated = validateAndSanitizeAnalysis(translated);
         return validated;
       } catch (error) {
@@ -58,15 +72,14 @@ export async function runPromptA({
     }
 
     attempts += 1;
-    messages.push({ role: 'assistant', content: response.content });
+    messages.push({
+      role: 'assistant',
+      content: response.choices[0]?.message?.content ?? null,
+      tool_calls: response.choices[0]?.message?.tool_calls,
+    });
     messages.push({
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `Your tool output failed validation because: ${lastError}. Fix your JSON output to conform to the schema and call the tool again.`,
-        },
-      ],
+      content: `Your tool output failed validation because: ${lastError}. Fix your JSON output to conform to the schema and call the tool again.`,
     });
   }
 
