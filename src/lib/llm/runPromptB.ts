@@ -1,11 +1,11 @@
+import Anthropic from '@anthropic-ai/sdk';
+import { anthropic, getAnthropicModelName } from '@/lib/llm/client';
 import { PROMPT_B_SYSTEM } from '@/lib/llm/promptB';
 import { validatePromptB } from '@/lib/llm/validatePromptB';
 import type { NormalizedAnalysis } from '@/lib/llm/validatePromptA';
-import { callChatGPTWithRetry, createChatCompletion, type ChatMessage } from '@/lib/llm/chatgptRequest';
 
 interface RunPromptBParams {
   analysis: NormalizedAnalysis;
-  requestId?: string;
 }
 
 function buildUserMessage(analysis: NormalizedAnalysis): string {
@@ -20,35 +20,10 @@ function buildUserMessage(analysis: NormalizedAnalysis): string {
   )}`;
 }
 
-function fallbackFeedback(analysis: NormalizedAnalysis): string {
-  const lpm = analysis.metrics.laughsPerMinute.toFixed(1);
-  const lpj = analysis.metrics.linesPerJoke.toFixed(1);
-  const retention =
-    analysis.gaps.retentionCliff &&
-    `A late gap spans lines ${analysis.gaps.retentionCliff.startLine}-${analysis.gaps.retentionCliff.endLine}.`;
-  const gap =
-    analysis.gaps.gaps[0] &&
-    `Noticeable gap around lines ${analysis.gaps.gaps[0].startLine}-${analysis.gaps.gaps[0].endLine}.`;
-  const character =
-    analysis.characters.characters[0] &&
-    `${analysis.characters.characters[0].name} carries ${analysis.characters.characters[0].jokeCount} jokes.`;
-
-  const gapLine = retention || gap || 'No major retention cliff detected yet.';
-  const characterLine = character || 'Joke load is not yet assigned to characters.';
-
-  return [
-    `LaughsPerMinute sits at ${lpm} with linesPerJoke at ${lpj}, setting a clear baseline while ${gapLine}`,
-    `Let’s tighten pacing by turning that note into punchlines and balancing delivery so ${characterLine}`,
-    'Next, increase early joke density, make each beat land a punchline, and share the laugh lines across characters. Ready to analyze some punchline gaps?',
-  ].join('\n\n');
-}
-
 export async function runPromptB({
   analysis,
-  requestId = 'unknown',
 }: RunPromptBParams): Promise<string> {
-  const messages: ChatMessage[] = [
-    { role: 'system', content: PROMPT_B_SYSTEM },
+  const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: buildUserMessage(analysis) },
   ];
 
@@ -56,22 +31,17 @@ export async function runPromptB({
   let lastError = '';
 
   while (attempts < 2) {
-    const response = await callChatGPTWithRetry(
-      { requestId, promptLabel: 'B' },
-      (signal) =>
-        createChatCompletion(
-          {
-            messages,
-            temperature: 0.3,
-            max_tokens: 1024,
-          },
-          signal
-        )
-    );
+    const response = await anthropic.messages.create({
+      model: getAnthropicModelName(),
+      max_tokens: 1024,
+      temperature: 0.3,
+      system: PROMPT_B_SYSTEM,
+      messages,
+    });
 
-    const content = response.choices[0]?.message?.content;
-    if (content) {
-      const validation = validatePromptB(content);
+    const content = response.content.find((block) => block.type === 'text');
+    if (content && content.type === 'text') {
+      const validation = validatePromptB(content.text);
       if (validation.ok) {
         return validation.value;
       }
@@ -81,15 +51,12 @@ export async function runPromptB({
     }
 
     attempts += 1;
-    messages.push({
-      role: 'assistant',
-      content: response.choices[0]?.message?.content ?? '',
-    });
+    messages.push({ role: 'assistant', content: response.content });
     messages.push({
       role: 'user',
       content: 'Fix formatting: exactly 3 paragraphs and end with the required line.',
     });
   }
 
-  return fallbackFeedback(analysis);
+  throw new Error(`Prompt B failed after retries: ${lastError || 'Unknown error'}`);
 }

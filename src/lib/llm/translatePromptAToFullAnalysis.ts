@@ -380,8 +380,9 @@ function mapTimelineData(
   // Fallback: if the model didn't return per-line jokes, synthesize a density curve
   if (jokes.length === 0 && (raw?.metrics?.laughsPerMinute ?? 0) > 0) {
     const baselineRate = raw.metrics.laughsPerMinute;
-    const peakMoments = Math.max(1, Math.min(buckets.length, raw?.metrics?.peakLaughMoments ?? 0));
-    const boostInterval = Math.max(1, Math.floor(buckets.length / peakMoments));
+    const bucketCount = segments.length || 1;
+    const peakMoments = Math.max(1, Math.min(bucketCount, raw?.metrics?.peakLaughMoments ?? 0));
+    const boostInterval = Math.max(1, Math.floor(bucketCount / peakMoments));
 
     segments.forEach((seg, i) => {
       const isPeak = i % boostInterval === 0;

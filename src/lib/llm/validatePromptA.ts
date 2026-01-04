@@ -21,7 +21,12 @@ export function validatePromptA(raw: unknown):
     return { ok: false, error: 'Analysis must be an object' };
   }
 
-  const sanitized = validateAndSanitizeAnalysis(raw);
+  let sanitized: NormalizedAnalysis;
+  try {
+    sanitized = validateAndSanitizeAnalysis(raw);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Analysis validation failed' };
+  }
 
   if (hasInvalidNumber(sanitized)) {
     return { ok: false, error: 'Analysis contains invalid numeric values' };
