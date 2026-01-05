@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Header, Footer, ScriptInput, LoadingAnalysis } from '@/components';
+import { Header, Footer, ScriptInput, LoadingAnalysis, EnvImport } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
 import type { ScriptFormat, AnalyzeResponse } from '@/types';
 
@@ -148,6 +148,14 @@ export default function AnalyzePage() {
                   </div>
                 </div>
               )}
+
+              <div className="mb-8">
+                <EnvImport onSave={async (content) => {
+                  console.log('Saving .env content:', content);
+                  // Implementation for saving would go here
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }} />
+              </div>
 
               <ScriptInput onSubmit={handleSubmit} isLoading={localLoading} />
 

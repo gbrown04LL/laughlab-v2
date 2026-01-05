@@ -3,6 +3,7 @@ export { Header } from './ui/Header';
 export { Footer } from './ui/Footer';
 export { ScriptInput } from './ui/ScriptInput';
 export { LoadingAnalysis } from './ui/LoadingAnalysis';
+export { EnvImport } from './ui/EnvImport';
 
 // Chart Components
 export { LaughTimeline } from './charts/LaughTimeline';
