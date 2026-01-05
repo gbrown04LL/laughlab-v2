@@ -3,10 +3,11 @@
  * Used for non-streaming chat completions.
  */
 
+import { env } from '@/lib/env';
+
 export type PromptLabel = 'A' | 'B' | 'coach' | 'format';
 
-const OPENAI_API_URL = process.env.OPENAI_API_URL ?? 'https://api.openai.com/v1/chat/completions';
-const DEFAULT_MODEL = 'gpt-5.2';
+const OPENAI_API_URL = env.OPENAI_API_URL ?? 'https://api.openai.com/v1/chat/completions';
 const CHATGPT_TIMEOUT_MS = 60000; // 60s
 const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = [1000, 2000, 4000];
@@ -147,19 +148,14 @@ export async function createChatCompletion(
   payload: ChatCompletionRequest,
   signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new OpenAIHTTPError(500, 'Missing OPENAI_API_KEY', null);
-  }
-
   const response = await fetch(OPENAI_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: payload.model ?? process.env.LLM_MODEL_NAME ?? DEFAULT_MODEL,
+      model: payload.model ?? env.LAUGHLAB_LLM_MODEL,
       ...payload,
     }),
     signal,

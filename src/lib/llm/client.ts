@@ -1,28 +1,24 @@
 import OpenAI from 'openai';
+import { env } from '@/lib/env';
 
-const DEFAULT_MODEL = 'gpt-5.2';
-
+/**
+ * Get the configured LLM model name.
+ * 
+ * This function returns the model name from the validated environment.
+ * No fallback or default is provided - the env var MUST be set.
+ * 
+ * @returns {string} The LLM model name (e.g., "gpt-5.2")
+ */
 export function getLLMModelName(): string {
-  const envModel = process.env.LLM_MODEL_NAME;
-
-  if (envModel !== undefined) {
-    const trimmed = envModel.trim();
-
-    if (!trimmed) {
-      throw new Error('LLM_MODEL_NAME is set but empty. Provide a valid model name.');
-    }
-
-    return trimmed;
-  }
-
-  return DEFAULT_MODEL;
+  return env.LAUGHLAB_LLM_MODEL;
 }
 
-const apiKey = process.env.OPENAI_API_KEY?.trim();
-if (!apiKey) {
-  throw new Error('OPENAI_API_KEY is missing or empty. Set it in your environment before running LLM calls.');
-}
-
+/**
+ * Configured OpenAI client instance.
+ * 
+ * This client is initialized with the validated API key from the environment.
+ * If the API key is missing or invalid, the env module will throw at startup.
+ */
 export const openai = new OpenAI({
-  apiKey,
+  apiKey: env.OPENAI_API_KEY,
 });

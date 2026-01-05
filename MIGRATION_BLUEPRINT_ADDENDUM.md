@@ -14,7 +14,7 @@ This addendum answers the questions engineers always ask—usually too late. It 
 
 | Domain | Canonical Source | Notes |
 |--------|------------------|-------|
-| **LLM Model** | `gpt-5.2` (defined in `src/lib/llm/client.ts:3`) | Override via `LLM_MODEL_NAME` env var for testing only |
+| **LLM Model** | `LAUGHLAB_LLM_MODEL` env var (required, validated in `src/lib/env.ts`) | No default - must be set explicitly (e.g., `gpt-5.2`) |
 | **Database Schema** | `supabase_schema.sql`, `supabase_eval_schema.sql` | Application code must not implicitly extend or reshape stored data |
 | **Primary Analysis Prompt** | `PROMPT_A_SYSTEM` in `src/lib/llm/promptA.ts` | Temperature 0, deterministic scoring; changes require versioning |
 | **Coach Feedback Prompt** | `PROMPT_B_SYSTEM` in `src/lib/llm/promptB.ts` | Temperature 0.3 for natural prose |
@@ -279,9 +279,10 @@ pnpm install
 
 # Create .env.local with:
 OPENAI_API_KEY=sk-...          # Required
-LLM_MODEL_NAME=gpt-5.2         # Optional (default: gpt-5.2)
+LAUGHLAB_LLM_MODEL=gpt-5.2     # Required (no default)
 NEXT_PUBLIC_SUPABASE_URL=...   # Optional (for persistence)
 NEXT_PUBLIC_SUPABASE_ANON_KEY=... # Optional
+SUPABASE_SERVICE_ROLE_KEY=...  # Optional (server-only)
 ```
 
 #### 2. Verify It Works
@@ -313,8 +314,8 @@ pnpm run typecheck
 
 | Footgun | Symptom | Fix |
 |---------|---------|-----|
-| Missing `OPENAI_API_KEY` | App crashes on startup | Add to `.env.local` |
-| Empty `LLM_MODEL_NAME` | Error thrown | Either omit or provide valid value |
+| Missing `OPENAI_API_KEY` | App crashes on startup with validation error | Add to `.env.local` |
+| Missing `LAUGHLAB_LLM_MODEL` | App crashes on startup with validation error | Add to `.env.local` (required, no default) |
 | Zustand hydration race | Report page shows "Loading..." forever | Fixed in `src/app/report/page.tsx` with manual recovery |
 | Rate limit in-memory only | Limits reset on Vercel cold start | Use Supabase for persistence |
 | Legacy `anthropic_client.ts` | Unused code confusion | Safe to delete |
@@ -394,9 +395,9 @@ vercel --prod
 │                                                              │
 │ Env vars:                                                    │
 │   OPENAI_API_KEY        (required)                          │
-│   LLM_MODEL_NAME        (optional, default: gpt-5.2)        │
+│   LAUGHLAB_LLM_MODEL    (required, no default)              │
 │   SUPABASE_URL          (optional, for persistence)         │
-│   SUPABASE_ANON_KEY     (optional, for persistence)         │
+│   SUPABASE_SERVICE_ROLE_KEY (optional, server-only)         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
