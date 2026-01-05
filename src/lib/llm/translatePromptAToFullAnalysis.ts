@@ -1,6 +1,5 @@
-import { clamp } from '@/lib/utils';
+import { clamp, estimateRuntime } from '@/lib/utils';
 import type {
-  FullAnalysis,
   ScriptFormat,
   CoreMetrics,
   JokeDistribution,
@@ -13,7 +12,7 @@ import type {
   JokeComplexity,
   TimelineMoment,
 } from '@/types';
-import { estimateRuntime } from '@/lib/utils';
+import type { ValidatedAnalysisResponse } from '@/lib/validation';
 
 const FORMAT_BENCHMARKS: Record<ScriptFormat, { targetLPM: number; targetLPJ: number; defaultPercentile: number }> = {
   sitcom: { targetLPM: 2.4, targetLPJ: 5.5, defaultPercentile: 55 },
@@ -459,7 +458,7 @@ function mapTimelineData(
   };
 }
 
-export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
+export function translatePromptAToFullAnalysis(raw: PromptARaw): ValidatedAnalysisResponse {
   const format = toScriptFormat(raw?.metadata?.formatType ?? 'auto');
   const totalLines =
     raw?.metadata?.totalLines ??
@@ -522,10 +521,6 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
   const coachNote = summary;
 
   return {
-    id: '',
-    timestamp: '',
-    title: '',
-    format: format as ScriptFormat,
     scriptStats: {
       totalLines: raw?.metadata?.totalLines ?? 0,
       dialogueLines: raw?.metadata?.totalLines ?? 0,
@@ -581,37 +576,51 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
 
 function mapCharacters(raw: any, score: number): { characters: CharacterProfile[]; balance: CharacterBalance } {
   const jokesPerCharacter = raw?.jokesPerCharacter ?? {};
-  const characters: CharacterProfile[] = Object.entries(jokesPerCharacter).map(([name, jokes]) => ({
+  const entries = Object.entries(jokesPerCharacter).map(([name, jokes]) => ({
     name,
-    jokeCount: jokes as number,
-    lines: 0,
-    sentiment: 'neutral',
-    traits: [],
+    jokeCount: typeof jokes === 'number' ? jokes : 0,
   }));
+  const totalJokes = entries.reduce((sum, entry) => sum + entry.jokeCount, 0);
+  const characters: CharacterProfile[] = entries.map((entry) => ({
+    name: entry.name,
+    jokeCount: entry.jokeCount,
+    jokePercentage: totalJokes > 0 ? Math.round((entry.jokeCount / totalJokes) * 100) : 0,
+    primaryStyle: '',
+    strongestMoment: '',
+    voiceConsistency: 0,
+    screenTimeEstimate: 0,
+  }));
+
+  const dominant = characters.reduce((top, current) => (current.jokeCount > top.jokeCount ? current : top), characters[0] ?? null);
+  const underutilized =
+    characters.length > 0
+      ? characters.filter((c) => c.jokeCount > 0 && c.jokeCount <= (totalJokes / characters.length) * 0.5).map((c) => c.name)
+      : [];
 
   return {
     characters,
     balance: {
       score,
-      status: score >= 70 ? 'balanced' : 'unbalanced',
-      analysis: 'Character distribution analysis based on joke frequency.',
+      status: score >= 70 ? 'balanced' : score >= 50 ? 'slightly-unbalanced' : 'unbalanced',
+      dominantCharacter: dominant ? dominant.name : null,
+      underutilized,
     },
   };
 }
 
 function mapCallbacks(raw: any): CallbackAnalysis {
-  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any, i: number) => ({
-    id: `cb_${i}`,
-    setupLine: c.setupLine,
-    callbackLine: c.callbackLine,
-    description: c.description,
-    impact: 'high',
+  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any) => ({
+    setupLine: typeof c.setupLine === 'number' ? c.setupLine : 0,
+    setupQuote: typeof c.description === 'string' ? c.description : '',
+    payoffLine: typeof c.callbackLine === 'number' ? c.callbackLine : 0,
+    payoffQuote: '',
+    effectiveness: 'medium',
   }));
 
   return {
-    total: raw?.totalCallbacks ?? 0,
-    frequency: raw?.callbackFrequency ?? 0,
-    missedOpportunities: raw?.missedCallbacks ?? 0,
-    callbacks: details,
+    existingCallbacks: details,
+    missedOpportunities: [],
+    callbackScore: typeof raw?.callbackFrequency === 'number' ? raw.callbackFrequency : 0,
+    recommendations: [],
   };
 }

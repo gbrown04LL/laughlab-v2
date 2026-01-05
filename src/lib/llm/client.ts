@@ -18,6 +18,11 @@ export function getLLMModelName(): string {
   return DEFAULT_MODEL;
 }
 
+const apiKey = process.env.OPENAI_API_KEY?.trim();
+if (!apiKey) {
+  throw new Error('OPENAI_API_KEY is missing or empty. Set it in your environment before running LLM calls.');
+}
+
 export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
+  apiKey,
 });

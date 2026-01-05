@@ -151,27 +151,28 @@ export async function generateCoachNote(params: {
 
     const toolUse = msg.choices[0]?.message?.tool_calls?.[0];
     if (!toolUse) {
+      console.warn('[CoachNote] Missing tool call on response', { requestId });
       return hardFallback;
     }
 
-    const parsedArgs = (() => {
-      try {
-        return JSON.parse(toolUse.function.arguments);
-      } catch {
-        return null;
-      }
-    })();
+    let parsedArgs: unknown;
+    try {
+      parsedArgs = JSON.parse(toolUse.function.arguments);
+    } catch (error) {
+      console.warn('[CoachNote] Tool args parse failed', { requestId, error });
+      return hardFallback;
+    }
 
     const parsed = CoachNoteSchema.safeParse(parsedArgs);
-    
+
     if (!parsed.success) {
-      console.warn("[CoachNote] Validation failed", parsed.error);
+      console.warn('[CoachNote] Validation failed', { requestId, issues: parsed.error.issues });
       return hardFallback;
     }
 
     return parsed.data.coachNote;
   } catch (error) {
-    console.error("[CoachNote] Generation failed", error);
+    console.error('[CoachNote] Generation failed', { requestId, error });
     return hardFallback;
   }
 }

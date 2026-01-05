@@ -1,8 +1,9 @@
-import { openai, getLLMModelName } from '@/lib/llm/client';
+import { randomUUID } from 'node:crypto';
+import { getLLMModelName } from '@/lib/llm/client';
 import { PROMPT_B_SYSTEM } from '@/lib/llm/promptB';
 import { validatePromptB } from '@/lib/llm/validatePromptB';
 import type { NormalizedAnalysis } from '@/lib/llm/validatePromptA';
-import type OpenAI from 'openai';
+import { callChatGPTWithRetry, createChatCompletion, type ChatMessage } from '@/lib/llm/chatgptRequest';
 
 interface RunPromptBParams {
   analysis: NormalizedAnalysis;
@@ -23,7 +24,8 @@ function buildUserMessage(analysis: NormalizedAnalysis): string {
 export async function runPromptB({
   analysis,
 }: RunPromptBParams): Promise<string> {
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+  const requestId = `promptB-${randomUUID()}`;
+  const messages: ChatMessage[] = [
     { role: 'system', content: PROMPT_B_SYSTEM },
     { role: 'user', content: buildUserMessage(analysis) },
   ];
@@ -32,12 +34,19 @@ export async function runPromptB({
   let lastError = '';
 
   while (attempts < 2) {
-    const response = await openai.chat.completions.create({
-      model: getLLMModelName(),
-      messages,
-      max_tokens: 1024,
-      temperature: 0.3,
-    });
+    const response = await callChatGPTWithRetry(
+      { requestId, promptLabel: 'B' },
+      (signal) =>
+        createChatCompletion(
+          {
+            model: getLLMModelName(),
+            messages,
+            max_tokens: 1024,
+            temperature: 0.3,
+          },
+          signal
+        )
+    );
 
     const content = response.choices[0]?.message?.content;
     if (content) {

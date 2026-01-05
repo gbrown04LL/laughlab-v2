@@ -1,112 +1,103 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseRlsClient, getRequestContext, type RequestContext } from '@/lib/serverSupabaseClient';
+import { validateAndSanitizeAnalysis, type ValidatedAnalysisResponse } from '@/lib/validation';
+import { coerceAnalysis } from '@/lib/llm/utils/coerce';
 import type { FullAnalysis } from '@/types';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const MAX_ANALYSIS_BYTES = 200_000; // ~200KB safety limit for analysis payload
 
-// Lazy initialization to avoid errors during build/SSG
-let _supabase: SupabaseClient | null = null;
-
-function getSupabaseClient(fingerprint?: string): SupabaseClient | null {
-  if (!fingerprint && _supabase) return _supabase;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return null;
-  }
-
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    global: fingerprint
-      ? { headers: { 'X-Client-Fingerprint': fingerprint } }
-      : undefined,
-  });
-
-  if (!fingerprint) {
-    _supabase = client;
-  }
-
-  return client;
-}
-
-/**
- * Helper to save an analysis to Supabase
- */
-export async function saveAnalysisToSupabase(analysis: any, fingerprint?: string) {
-  const supabase = getSupabaseClient(fingerprint);
-  if (!supabase) {
-    return { success: false, error: 'Supabase not configured' };
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from('reports')
-      .insert({
-        id: analysis.id,
-        title: analysis.title,
-        format: analysis.format,
-        overall_score: analysis.metrics.overallScore,
-        analysis_data: analysis,
-        fingerprint: fingerprint || null,
-      })
-      .select();
-
-    if (error) throw error;
-    return { success: true, data };
-  } catch (error) {
-    console.error('Error saving analysis to Supabase:', error);
-    return { success: false, error };
+function requireContext(ctx: RequestContext): asserts ctx is RequestContext & ({ userId: string } | { sessionId: string }) {
+  if (!ctx.userId && !ctx.sessionId) {
+    throw new Error('Supabase context missing: userId or sessionId is required');
   }
 }
 
-/**
- * Helper to fetch analysis history from Supabase
- */
-export async function fetchAnalysisHistory(fingerprint?: string) {
-  const supabase = getSupabaseClient(fingerprint);
-  if (!supabase) {
-    return { success: false, error: 'Supabase not configured', data: [] };
-  }
-
-  try {
-    let query = supabase
-      .from('reports')
-      .select('id, title, format, overall_score, created_at')
-      .order('created_at', { ascending: false });
-
-    if (fingerprint) {
-      query = query.eq('fingerprint', fingerprint);
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw error;
-    return { success: true, data };
-  } catch (error) {
-    console.error('Error fetching analysis history:', error);
-    return { success: false, error };
+function ensureSize(payload: unknown) {
+  const serialized = JSON.stringify(payload);
+  if (serialized.length > MAX_ANALYSIS_BYTES) {
+    throw new Error('Analysis payload exceeds size limit');
   }
 }
 
-/**
- * Helper to fetch a single analysis by ID from Supabase
- */
-export async function fetchAnalysisById(
-  id: string,
-  fingerprint?: string
-): Promise<FullAnalysis | null> {
-  const supabase = getSupabaseClient(fingerprint);
-  if (!supabase) {
-    return null;
+type RlsClient = SupabaseClient;
+
+export function getClientForContext(ctx: RequestContext): RlsClient {
+  requireContext(ctx);
+  return getSupabaseRlsClient(ctx);
+}
+
+export async function saveAnalysisToSupabase(
+  analysis: ValidatedAnalysisResponse,
+  ctx: RequestContext
+) {
+  const supabase = getClientForContext(ctx);
+  ensureSize(analysis);
+
+  const payload = validateAndSanitizeAnalysis(analysis);
+
+  const insertData = {
+    id: (analysis as any).id ?? undefined,
+    title: (analysis as any).title ?? 'Untitled Script',
+    format: (analysis as any).format ?? 'auto',
+    overall_score: payload.metrics.overallScore,
+    analysis_data: payload,
+    user_id: ctx.userId ?? null,
+    session_id: ctx.sessionId ?? null,
+  };
+
+  const { data, error } = await supabase.from('reports').insert(insertData).select();
+  if (error) {
+    throw error;
   }
+  return data;
+}
+
+export async function fetchAnalysisHistory(ctx: RequestContext) {
+  const supabase = getClientForContext(ctx);
+
+  const query = supabase
+    .from('reports')
+    .select('id, title, format, overall_score, created_at')
+    .order('created_at', { ascending: false })
+    .eq(ctx.userId ? 'user_id' : 'session_id', ctx.userId ?? ctx.sessionId ?? '');
+
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+  return data;
+}
+
+export async function fetchAnalysisById(id: string, ctx: RequestContext): Promise<ValidatedAnalysisResponse> {
+  const supabase = getClientForContext(ctx);
 
   const { data, error } = await supabase
     .from('reports')
     .select('analysis_data')
     .eq('id', id)
-    .single();
+    .eq(ctx.userId ? 'user_id' : 'session_id', ctx.userId ?? ctx.sessionId ?? '')
+    .maybeSingle();
 
   if (error || !data) {
-    return null;
+    throw error ?? new Error('Analysis not found');
   }
 
-  return data.analysis_data as FullAnalysis;
+  ensureSize(data.analysis_data);
+  return coerceAnalysis(data.analysis_data);
+}
+
+export async function fetchAnalysisByIdClient(id: string): Promise<FullAnalysis | null> {
+  if (typeof window !== 'undefined') {
+    const res = await fetch(`/api/report?id=${encodeURIComponent(id)}`, { credentials: 'include' });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { success: boolean; data?: FullAnalysis };
+    return json.success ? json.data ?? null : null;
+  }
+
+  const ctx = getRequestContext();
+  try {
+    return await fetchAnalysisById(id, ctx);
+  } catch {
+    return null;
+  }
 }

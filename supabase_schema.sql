@@ -6,8 +6,8 @@
 CREATE TABLE IF NOT EXISTS public.reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    user_id UUID REFERENCES auth.users(id), -- Optional: for when we add auth
-    fingerprint TEXT, -- For anonymous tracking
+    user_id UUID REFERENCES auth.users(id),
+    session_id UUID,
     title TEXT NOT NULL,
     format TEXT NOT NULL,
     overall_score INTEGER NOT NULL,
@@ -15,32 +15,51 @@ CREATE TABLE IF NOT EXISTS public.reports (
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
+-- Ensure exactly one ownership column is present
+ALTER TABLE public.reports DROP CONSTRAINT IF EXISTS reports_owner_xor;
+ALTER TABLE public.reports
+  ADD CONSTRAINT reports_owner_xor CHECK (
+    (user_id IS NOT NULL AND session_id IS NULL) OR
+    (user_id IS NULL AND session_id IS NOT NULL)
+  );
+
 -- 2. Enable Row Level Security (RLS)
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 
--- 3. Create policies
--- Allow anonymous users to insert reports (for now)
-CREATE POLICY "Allow anonymous inserts" ON public.reports
-    FOR INSERT WITH CHECK (true);
+-- 3. Ownership policies (user OR server-issued session)
+DROP POLICY IF EXISTS "reports_select_owner" ON public.reports;
+DROP POLICY IF EXISTS "reports_insert_owner" ON public.reports;
+DROP POLICY IF EXISTS "reports_update_owner" ON public.reports;
 
--- Allow users to read their own reports based on fingerprint (anonymous)
--- Or by user_id (if authenticated)
-DROP POLICY IF EXISTS "Allow users to read their own reports" ON public.reports;
-CREATE POLICY "Allow users to read their own reports" ON public.reports
-    FOR SELECT USING (
-        (auth.uid() = user_id) OR
-        (
-            fingerprint IS NOT NULL AND
-            fingerprint = COALESCE(
-                (current_setting('request.jwt.claims', true)::jsonb ->> 'fingerprint'),
-                current_setting('request.headers.x-client-fingerprint', true)
-            )
-        )
-    );
+CREATE POLICY "reports_select_owner" ON public.reports
+  FOR SELECT USING (
+    (user_id IS NOT NULL AND user_id = auth.uid())
+    OR
+    (session_id IS NOT NULL AND session_id = current_setting('request.headers.x-session-id', true)::uuid)
+  );
+
+CREATE POLICY "reports_insert_owner" ON public.reports
+  FOR INSERT WITH CHECK (
+    (user_id IS NOT NULL AND user_id = auth.uid())
+    OR
+    (session_id IS NOT NULL AND session_id = current_setting('request.headers.x-session-id', true)::uuid)
+  );
+
+CREATE POLICY "reports_update_owner" ON public.reports
+  FOR UPDATE USING (
+    (user_id IS NOT NULL AND user_id = auth.uid())
+    OR
+    (session_id IS NOT NULL AND session_id = current_setting('request.headers.x-session-id', true)::uuid)
+  )
+  WITH CHECK (
+    (user_id IS NOT NULL AND user_id = auth.uid())
+    OR
+    (session_id IS NOT NULL AND session_id = current_setting('request.headers.x-session-id', true)::uuid)
+  );
 
 -- 4. Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_reports_user_id ON public.reports(user_id);
-CREATE INDEX IF NOT EXISTS idx_reports_fingerprint ON public.reports(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_reports_user_id ON public.reports(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reports_session_id ON public.reports(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_reports_created_at ON public.reports(created_at DESC);
 
 -- ==========================================

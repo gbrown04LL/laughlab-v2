@@ -14,7 +14,7 @@ import {
   Page6Characters,
 } from '@/components';
 import { useAnalysisStore } from '@/lib/store';
-import { fetchAnalysisById } from '@/lib/supabase';
+import { fetchAnalysisByIdClient } from '@/lib/supabase';
 
 export default function ReportPage() {
   const router = useRouter();
@@ -50,7 +50,7 @@ export default function ReportPage() {
     fetchAttemptedRef.current = true;
     setIsFetchingFromSupabase(true);
 
-    fetchAnalysisById(currentAnalysisId).then((result) => {
+    fetchAnalysisByIdClient(currentAnalysisId).then((result) => {
       if (!result) {
         // Fetch failed or no data - redirect
         router.replace('/analyze');
