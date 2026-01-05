@@ -600,18 +600,18 @@ function mapCharacters(raw: any, score: number): { characters: CharacterProfile[
 }
 
 function mapCallbacks(raw: any): CallbackAnalysis {
-  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any, i: number) => ({
-    id: `cb_${i}`,
-    setupLine: c.setupLine,
-    callbackLine: c.callbackLine,
-    description: c.description,
-    impact: 'high',
+  const details: Callback[] = (raw?.callbacksDetail ?? []).map((c: any) => ({
+    setupLine: c.setupLine ?? 0,
+    setupQuote: c.description ?? '',
+    payoffLine: c.callbackLine ?? 0,
+    payoffQuote: '',
+    effectiveness: 'medium',
   }));
 
   return {
-    total: raw?.totalCallbacks ?? 0,
-    frequency: raw?.callbackFrequency ?? 0,
-    missedOpportunities: raw?.missedCallbacks ?? 0,
-    callbacks: details,
+    existingCallbacks: details,
+    missedOpportunities: [],
+    callbackScore: clamp(raw?.callbackFrequency ?? 0, 0, 100),
+    recommendations: [],
   };
 }
