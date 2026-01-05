@@ -127,18 +127,9 @@ export async function POST(request: NextRequest) {
     }
 
     // ===========================================
-    // 4. CHECK API KEY
+    // 4. DETECT FORMAT & RUN PROMPTS
     // ===========================================
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json<AnalyzeResponse>(
-        { success: false, error: 'API key not configured. Please add OPENAI_API_KEY to your environment.' },
-        { status: 500 }
-      );
-    }
-
-    // ===========================================
-    // 5. DETECT FORMAT & RUN PROMPTS
-    // ===========================================
+    // Note: API key and model are validated at startup by src/lib/env.ts
     const detectedFormat = safeFormat === 'auto' ? detectFormat(script) : safeFormat;
 
     console.log(
@@ -174,7 +165,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ===========================================
-    // 6. BUILD FULL ANALYSIS RESULT
+    // 5. BUILD FULL ANALYSIS RESULT
     // ===========================================
     const analysis: FullAnalysis = {
       id: generateId('analysis'),
@@ -196,7 +187,7 @@ export async function POST(request: NextRequest) {
     };
 
     // ===========================================
-    // 9. INCREMENT USAGE (only on success)
+    // 6. INCREMENT USAGE (only on success)
     // ===========================================
     await incrementUsage(rateLimitKey);
 

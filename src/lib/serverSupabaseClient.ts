@@ -1,23 +1,25 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseConfig } from '@/lib/env';
 
 let _serverSupabase: SupabaseClient | null = null;
 
-const supabaseUrl =
-  process.env.SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  '';
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_KEY ||
-  '';
-
+/**
+ * Get or create a server-side Supabase client with service role privileges.
+ * 
+ * This client bypasses Row Level Security (RLS) and should only be used
+ * in server-side code for administrative operations.
+ * 
+ * @returns {SupabaseClient | null} Supabase client or null if not configured
+ */
 export function getServerSupabaseClient(): SupabaseClient | null {
   if (_serverSupabase) return _serverSupabase;
-  if (!supabaseUrl || !supabaseServiceKey) {
+
+  const config = getSupabaseConfig();
+  if (!config) {
     return null;
   }
 
-  _serverSupabase = createClient(supabaseUrl, supabaseServiceKey, {
+  _serverSupabase = createClient(config.url, config.serviceKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -26,4 +28,3 @@ export function getServerSupabaseClient(): SupabaseClient | null {
 
   return _serverSupabase;
 }
-

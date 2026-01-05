@@ -25,12 +25,13 @@ Create `.env.local` in the project root:
 # REQUIRED - Get from OpenAI dashboard
 OPENAI_API_KEY=sk-...
 
-# OPTIONAL - Override default model (default: gpt-5.2)
-# LLM_MODEL_NAME=gpt-5.2
+# REQUIRED - LLM model name (no default, must be set explicitly)
+LAUGHLAB_LLM_MODEL=gpt-5.2
 
 # OPTIONAL - For persistent storage (Supabase)
 # NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
 # NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+# SUPABASE_SERVICE_ROLE_KEY=eyJ...  # Server-only, never expose to client
 ```
 
 ### 3. Run Development Server
@@ -100,14 +101,14 @@ laughlab-v2/
 ---
 
 ## Environment Variables Reference
-
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | — | OpenAI API key |
-| `LLM_MODEL_NAME` | No | `gpt-5.2` | Model to use |
+| `LAUGHLAB_LLM_MODEL` | Yes | — | LLM model name (e.g., gpt-5.2) |
 | `OPENAI_API_URL` | No | OpenAI default | Custom endpoint |
-| `NEXT_PUBLIC_SUPABASE_URL` | No | — | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | No | — | Supabase anon key |
+| `NEXT_PUBLIC_SUPABASE_URL` | No | — | Supabase project URL (client-safe) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | No | — | Supabase anon key (client-safe) |
+| `SUPABASE_SERVICE_ROLE_KEY` | No | — | Supabase service role key (server-only) ||
 
 ---
 
@@ -149,24 +150,18 @@ laughlab-v2/
 ---
 
 ## Known Footguns
-
-### 1. Missing API Key
-
-**Symptom**: App crashes on startup with "OPENAI_API_KEY is missing"
-
-**Fix**: Add `OPENAI_API_KEY=sk-...` to `.env.local`
-
----
-
-### 2. Empty LLM_MODEL_NAME
-
-**Symptom**: Error "LLM_MODEL_NAME is set but empty"
-
-**Fix**: Either omit `LLM_MODEL_NAME` entirely or provide a valid value
+### 1. Missing Required Environment Variables
+**Symptom**: App crashes on startup with validation errors like "OPENAI_API_KEY is required" or "LAUGHLAB_LLM_MODEL is required"
+**Fix**: Add both required variables to `.env.local`:
+```bash
+OPENAI_API_KEY=sk-...
+LAUGHLAB_LLM_MODEL=gpt-5.2
+```
+**Note**: As of the latest update, `LAUGHLAB_LLM_MODEL` is required with no default fallback.
 
 ---
 
-### 3. Report Page Stuck on "Loading..."
+### 2. Report Page Stuck on "Loading..."
 
 **Symptom**: After analysis, report page shows loading spinner forever
 
