@@ -1,7 +1,6 @@
 {
   "include": [
     "src/**/*",
-    "client/src/**/*",
     "shared/**/*",
     "server/**/*",
     ".next/types/**/*.ts",
@@ -32,12 +31,10 @@
     "baseUrl": ".",
     "types": [
       "node",
-      "vite/client"
     ],
     "paths": {
       "@/*": [
         "./src/*",
-        "./client/src/*"
       ],
       "@shared/*": [
         "./shared/*"

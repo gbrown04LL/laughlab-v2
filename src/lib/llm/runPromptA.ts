@@ -12,14 +12,16 @@ interface RunPromptAParams {
   script: string;
   format: ScriptFormat;
   title: string;
+  requestId?: string;
 }
 
 export async function runPromptA({
   script,
   format,
   title,
+  requestId: externalRequestId,
 }: RunPromptAParams): Promise<ValidatedAnalysisResponse> {
-  const requestId = `promptA-${randomUUID()}`;
+  const requestId = externalRequestId || `promptA-${randomUUID()}`;
   const messages: ChatMessage[] = [
     {
       role: 'system',

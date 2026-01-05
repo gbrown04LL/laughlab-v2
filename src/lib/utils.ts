@@ -2,6 +2,8 @@
 // LAUGH LAB PRO - UTILITY FUNCTIONS
 // ===========================================
 
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 import type { JokeComplexity, Gap, UserTier } from '@/types';
 
 // Generate unique IDs
@@ -166,6 +168,6 @@ export const REPORT_PAGES = [
 ] as const;
 
 // CN utility for conditional classnames
-export function cn(...classes: (string | boolean | undefined | null)[]): string {
-  return classes.filter(Boolean).join(' ');
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
