@@ -1,5 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 export const metadata: Metadata = {
   title: 'Laugh Lab | Professional Comedy Script Analysis',
@@ -27,7 +31,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col">
-        {children}
+        <ErrorBoundary>
+          <ThemeProvider defaultTheme="light">
+            <TooltipProvider>
+              <Toaster />
+              {children}
+            </TooltipProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

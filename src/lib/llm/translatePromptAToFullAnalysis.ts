@@ -581,20 +581,28 @@ export function translatePromptAToFullAnalysis(raw: PromptARaw): FullAnalysis {
 
 function mapCharacters(raw: any, score: number): { characters: CharacterProfile[]; balance: CharacterBalance } {
   const jokesPerCharacter = raw?.jokesPerCharacter ?? {};
-  const characters: CharacterProfile[] = Object.entries(jokesPerCharacter).map(([name, jokes]) => ({
-    name,
-    jokeCount: jokes as number,
-    lines: 0,
-    sentiment: 'neutral',
-    traits: [],
-  }));
+  const totalJokes = Object.values(jokesPerCharacter).reduce((sum: number, count: any) => sum + (count as number), 0);
+  
+  const characters: CharacterProfile[] = Object.entries(jokesPerCharacter).map(([name, jokes]) => {
+    const count = jokes as number;
+    return {
+      name,
+      jokeCount: count,
+      jokePercentage: totalJokes > 0 ? (count / totalJokes) * 100 : 0,
+      primaryStyle: 'Unknown',
+      strongestMoment: 'N/A',
+      voiceConsistency: 100,
+      screenTimeEstimate: 0,
+    };
+  });
 
   return {
     characters,
     balance: {
       score,
-      status: score >= 70 ? 'balanced' : 'unbalanced',
-      analysis: 'Character distribution analysis based on joke frequency.',
+      status: score >= 70 ? 'balanced' : score >= 40 ? 'slightly-unbalanced' : 'unbalanced',
+      dominantCharacter: characters.length > 0 ? characters.reduce((prev, current) => (prev.jokeCount > current.jokeCount) ? prev : current).name : null,
+      underutilized: [],
     },
   };
 }
