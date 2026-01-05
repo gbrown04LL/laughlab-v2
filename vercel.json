@@ -1,13 +1,6 @@
 {
-  "framework": null,
+  "framework": "nextjs",
   "installCommand": "corepack enable && pnpm install",
   "buildCommand": "pnpm run build",
-  "outputDirectory": "dist/public",
-  "cleanUrls": true,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ]
+  "cleanUrls": true
 }
