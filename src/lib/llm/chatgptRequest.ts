@@ -147,7 +147,7 @@ export async function createChatCompletion(
   payload: ChatCompletionRequest,
   signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     throw new OpenAIHTTPError(500, 'Missing OPENAI_API_KEY', null);
   }
