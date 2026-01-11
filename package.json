@@ -3,15 +3,24 @@
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0 <23.0.0"
+  },
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "(prisma generate || true) && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate || echo 'Prisma generate skipped (run pnpm db:generate when DATABASE_URL is set)'"
   },
   "dependencies": {
+    "@prisma/client": "^5.22.0",
     "@anthropic-ai/sdk": "^0.71.2",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
@@ -70,6 +79,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "prisma": "^5.22.0",
     "@builder.io/vite-plugin-jsx-loc": "^0.1.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@tailwindcss/typography": "^0.5.15",

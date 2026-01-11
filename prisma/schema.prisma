@@ -1,0 +1,72 @@
+// Prisma schema for Laugh Lab V1 - Truth Contract compliance
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Script submission with fingerprint fields per Truth Contract
+model ScriptSubmission {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // User/session info (stubbed single user for Slice-0)
+  userId         String?  @map("user_id")
+
+  // Script fingerprint fields (Truth Contract requirement)
+  inputHash      String   @map("input_hash")      // Stable hash of normalized script text
+  wordCount      Int      @map("word_count")
+  estimatedPages Float    @map("estimated_pages")
+  inferredFormat String   @map("inferred_format") // scene|half_hour|hour|feature
+
+  // Optional tier compatibility
+  tierCompatibility String? @map("tier_compatibility")
+
+  // Metadata (no raw script text stored)
+  title          String   @default("Untitled Script")
+  charCount      Int      @map("char_count")
+
+  // Relationships
+  jobs           Job[]
+
+  @@map("script_submissions")
+}
+
+// Analysis job
+model Job {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Link to script submission
+  scriptId         String   @map("script_id")
+  script           ScriptSubmission @relation(fields: [scriptId], references: [id])
+
+  // Job status
+  status           JobStatus @default(PENDING)
+
+  // Request tracking
+  requestId        String?   @map("request_id")
+
+  // Analysis results (JSONB stored as Json type)
+  promptAResult    Json?     @map("prompt_a_result")
+  promptBResult    Json?     @map("prompt_b_result")
+  finalReport      Json?     @map("final_report")
+
+  // Error tracking (per Truth Contract canonical error shape)
+  errors           Json?     // Array of ErrorObject
+
+  @@map("jobs")
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING_PROMPT_A
+  RUNNING_PROMPT_B
+  COMPLETED
+  FAILED
+}

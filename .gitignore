@@ -104,5 +104,11 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Vercel
 .vercel
 .env*.local
