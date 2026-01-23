@@ -29,6 +29,26 @@ export function getAnthropicModelName(): string {
   return DEFAULT_MODEL;
 }
 
-export const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
+let _anthropic: Anthropic | null = null;
+
+function getAnthropicClient(): Anthropic {
+  if (_anthropic) {
+    return _anthropic;
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY || '';
+
+  _anthropic = new Anthropic({
+    apiKey,
+  });
+
+  return _anthropic;
+}
+
+export const anthropic = new Proxy({} as Anthropic, {
+  get(_target, prop) {
+    const client = getAnthropicClient();
+    const value = client[prop as keyof Anthropic];
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
 });
