@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { History, FileText, ChevronRight, Search, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -8,7 +9,7 @@ import { fetchAnalysisHistory } from '@/lib/supabase';
 import { useAnalysisStore } from '@/lib/store';
 import { AnalysisHistoryItem } from '@/types';
 
-export default function HistoryPage() {
+function HistoryPage() {
   const router = useRouter();
   const { setAnalysis } = useAnalysisStore();
   const [history, setHistory] = useState<AnalysisHistoryItem[]>([]);
@@ -183,3 +184,5 @@ export default function HistoryPage() {
     </div>
   );
 }
+
+export default dynamic(() => Promise.resolve(HistoryPage), { ssr: false });
